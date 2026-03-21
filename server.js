@@ -5,7 +5,9 @@ import cors from 'cors';
 // Run: doppler run -- node server.js
 
 const app = express();
-app.use(cors());
+app.use(cors({
+  origin: process.env.CORS_ORIGIN ? process.env.CORS_ORIGIN.split(',') : true,
+}));
 app.use(express.json());
 
 const { JIRA_BASE_URL, JIRA_EMAIL, JIRA_API_TOKEN } = process.env;
@@ -67,15 +69,35 @@ app.get('/api/boards', async (req, res) => {
   }
 });
 
-// Search issues with JQL
+// Search issues with JQL (using new /search/jql endpoint with cursor pagination)
 app.get('/api/issues', async (req, res) => {
   try {
-    const { jql, startAt = 0, maxResults = 50 } = req.query;
+    const { jql, maxResults = 25, nextPageToken } = req.query;
     const defaultJql = 'assignee = currentUser() ORDER BY updated DESC';
     const query = jql || defaultJql;
-    const data = await jiraFetch(
-      `/search?jql=${encodeURIComponent(query)}&startAt=${startAt}&maxResults=${maxResults}&expand=names,schema`
-    );
+    const url = `${JIRA_BASE_URL}/rest/api/3/search/jql`;
+    const body = {
+      jql: query,
+      maxResults: Number(maxResults),
+      fields: ['summary', 'status', 'priority', 'assignee', 'issuetype', 'project', 'updated', 'created', 'labels'],
+    };
+    if (nextPageToken) {
+      body.nextPageToken = nextPageToken;
+    }
+    const jiraRes = await fetch(url, {
+      method: 'POST',
+      headers: {
+        Authorization: authHeader,
+        'Content-Type': 'application/json',
+        Accept: 'application/json',
+      },
+      body: JSON.stringify(body),
+    });
+    if (!jiraRes.ok) {
+      const text = await jiraRes.text();
+      throw new Error(`Jira API ${jiraRes.status}: ${text}`);
+    }
+    const data = await jiraRes.json();
     res.json(data);
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -169,6 +191,61 @@ app.get('/api/priorities', async (req, res) => {
   try {
     const data = await jiraFetch('/priority');
     res.json(data);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Get comments for an issue
+app.get('/api/issues/:key/comments', async (req, res) => {
+  try {
+    const data = await jiraFetch(`/issue/${req.params.key}/comment?orderBy=-created`);
+    res.json(data);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Add a comment to an issue
+app.post('/api/issues/:key/comments', async (req, res) => {
+  try {
+    const data = await jiraFetch(`/issue/${req.params.key}/comment`, {
+      method: 'POST',
+      body: JSON.stringify({ body: req.body.body }),
+    });
+    res.json(data);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Update a comment
+app.put('/api/issues/:key/comments/:commentId', async (req, res) => {
+  try {
+    const data = await jiraFetch(`/issue/${req.params.key}/comment/${req.params.commentId}`, {
+      method: 'PUT',
+      body: JSON.stringify({ body: req.body.body }),
+    });
+    res.json(data);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Delete a comment
+app.delete('/api/issues/:key/comments/:commentId', async (req, res) => {
+  try {
+    const url = `${JIRA_BASE_URL}/rest/api/3/issue/${req.params.key}/comment/${req.params.commentId}`;
+    const jiraRes = await fetch(url, {
+      method: 'DELETE',
+      headers: { Authorization: authHeader, Accept: 'application/json' },
+    });
+    if (!jiraRes.ok) {
+      const text = await jiraRes.text();
+      res.status(jiraRes.status).json({ error: text });
+      return;
+    }
+    res.json({ success: true });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

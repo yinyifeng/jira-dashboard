@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { fetchIssues, fetchBoards, type JiraIssue } from './api';
 import IssueTable from './components/IssueTable';
+import IssueDetailPanel from './components/IssueDetailPanel';
 
 const PRESETS: { label: string; jql: string }[] = [
   { label: 'My Issues', jql: 'assignee = currentUser() ORDER BY updated DESC' },
@@ -11,23 +12,25 @@ const PRESETS: { label: string; jql: string }[] = [
 
 export default function App() {
   const [issues, setIssues] = useState<JiraIssue[]>([]);
-  const [total, setTotal] = useState(0);
-  const [page, setPage] = useState(0);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [jql, setJql] = useState(PRESETS[0].jql);
   const [jqlInput, setJqlInput] = useState(PRESETS[0].jql);
   const [boards, setBoards] = useState<{ id: string; name: string; key?: string }[]>([]);
   const [selectedBoard, setSelectedBoard] = useState('');
-  const pageSize = 25;
+  const [nextPageToken, setNextPageToken] = useState<string | undefined>();
+  const [pageTokenHistory, setPageTokenHistory] = useState<(string | undefined)[]>([]);
+  const [isLast, setIsLast] = useState(true);
+  const [selectedIssueKey, setSelectedIssueKey] = useState<string | null>(null);
 
-  const loadIssues = useCallback(async (query: string, pageNum: number) => {
+  const loadIssues = useCallback(async (query: string, token?: string) => {
     setLoading(true);
     setError('');
     try {
-      const data = await fetchIssues(query, pageNum * pageSize, pageSize);
+      const data = await fetchIssues(query, token);
       setIssues(data.issues);
-      setTotal(data.total);
+      setNextPageToken(data.nextPageToken);
+      setIsLast(data.isLast);
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Failed to load issues');
       setIssues([]);
@@ -41,19 +44,19 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    loadIssues(jql, page);
-  }, [jql, page, loadIssues]);
+    setPageTokenHistory([]);
+    setNextPageToken(undefined);
+    loadIssues(jql);
+  }, [jql, loadIssues]);
 
   const handleSearch = (e: React.FormEvent) => {
     e.preventDefault();
-    setPage(0);
     setJql(jqlInput);
   };
 
   const handlePreset = (preset: typeof PRESETS[number]) => {
     setJqlInput(preset.jql);
     setJql(preset.jql);
-    setPage(0);
     setSelectedBoard('');
   };
 
@@ -67,10 +70,22 @@ export default function App() {
       setJqlInput(PRESETS[0].jql);
       setJql(PRESETS[0].jql);
     }
-    setPage(0);
   };
 
-  const totalPages = Math.ceil(total / pageSize);
+  const handleNextPage = () => {
+    if (nextPageToken) {
+      setPageTokenHistory((prev) => [...prev, undefined]); // store current position marker
+      loadIssues(jql, nextPageToken);
+    }
+  };
+
+  const handlePrevPage = () => {
+    // Go back to first page (cursor pagination doesn't support arbitrary back navigation)
+    setPageTokenHistory([]);
+    loadIssues(jql);
+  };
+
+  const currentPage = pageTokenHistory.length;
 
   return (
     <div className="min-h-screen bg-gray-50 dark:bg-gray-950 text-gray-900 dark:text-gray-100">
@@ -80,11 +95,11 @@ export default function App() {
           <div className="flex items-center gap-3">
             <h1 className="text-lg font-semibold tracking-tight">Jira Dashboard</h1>
             <span className="text-xs text-gray-400 bg-gray-100 dark:bg-gray-800 px-2 py-0.5 rounded-full">
-              {total} issues
+              {issues.length} shown
             </span>
           </div>
           <button
-            onClick={() => loadIssues(jql, page)}
+            onClick={() => loadIssues(jql)}
             disabled={loading}
             className="text-sm px-3 py-1.5 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 transition-colors"
           >
@@ -157,27 +172,27 @@ export default function App() {
               <p>Loading issues...</p>
             </div>
           ) : (
-            <IssueTable issues={issues} onRefresh={() => loadIssues(jql, page)} />
+            <IssueTable issues={issues} onRefresh={() => loadIssues(jql)} onSelectIssue={setSelectedIssueKey} />
           )}
         </div>
 
         {/* Pagination */}
-        {totalPages > 1 && (
+        {(currentPage > 0 || !isLast) && (
           <div className="flex items-center justify-between mt-4 text-sm">
             <span className="text-gray-500">
-              Showing {page * pageSize + 1}–{Math.min((page + 1) * pageSize, total)} of {total}
+              Page {currentPage + 1}
             </span>
             <div className="flex gap-1">
               <button
-                onClick={() => setPage(Math.max(0, page - 1))}
-                disabled={page === 0}
+                onClick={handlePrevPage}
+                disabled={currentPage === 0}
                 className="px-3 py-1.5 border border-gray-300 dark:border-gray-600 rounded-lg disabled:opacity-40 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"
               >
-                Previous
+                First
               </button>
               <button
-                onClick={() => setPage(Math.min(totalPages - 1, page + 1))}
-                disabled={page >= totalPages - 1}
+                onClick={handleNextPage}
+                disabled={isLast}
                 className="px-3 py-1.5 border border-gray-300 dark:border-gray-600 rounded-lg disabled:opacity-40 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"
               >
                 Next
@@ -186,6 +201,15 @@ export default function App() {
           </div>
         )}
       </div>
+
+      {/* Issue detail slide-over */}
+      {selectedIssueKey && (
+        <IssueDetailPanel
+          issueKey={selectedIssueKey}
+          onClose={() => setSelectedIssueKey(null)}
+          onUpdated={() => loadIssues(jql)}
+        />
+      )}
     </div>
   );
 }
