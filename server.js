@@ -44,28 +44,39 @@ async function jiraFetch(path, options = {}) {
 // Get all boards the user has access to
 app.get('/api/boards', async (req, res) => {
   try {
-    const data = await jiraFetch('/board', {});
-    // board endpoint is under agile API
+    // Try Agile API first for Scrum/Kanban boards
     const url = `${JIRA_BASE_URL}/rest/agile/1.0/board`;
     const agileRes = await fetch(url, {
       headers: { Authorization: authHeader, Accept: 'application/json' },
     });
-    if (!agileRes.ok) {
-      // Fallback: return projects instead
-      const projects = await jiraFetch('/project');
-      res.json({ boards: projects.map(p => ({ id: p.id, name: p.name, type: 'project', key: p.key })) });
-      return;
+    
+    if (agileRes.ok) {
+      const agileData = await agileRes.json();
+      const boards = (agileData.values || []).map(b => ({
+        id: b.id,
+        name: b.name,
+        key: b.key || b.id,
+        type: b.type || 'board'
+      }));
+      
+      if (boards.length > 0) {
+        return res.json({ boards });
+      }
     }
-    const agileData = await agileRes.json();
-    res.json({ boards: agileData.values || [] });
+    
+    // Fallback: return projects if no boards found
+    console.log('No boards found via Agile API, falling back to projects');
+    const projects = await jiraFetch('/project');
+    const boards = projects.map(p => ({
+      id: p.id,
+      name: p.name,
+      key: p.key,
+      type: 'project'
+    }));
+    res.json({ boards });
   } catch (err) {
-    // If agile API not available, fallback to projects
-    try {
-      const projects = await jiraFetch('/project');
-      res.json({ boards: projects.map(p => ({ id: p.id, name: p.name, type: 'project', key: p.key })) });
-    } catch (e) {
-      res.status(500).json({ error: e.message });
-    }
+    console.error('Error fetching boards:', err.message);
+    res.status(500).json({ error: err.message });
   }
 });
 

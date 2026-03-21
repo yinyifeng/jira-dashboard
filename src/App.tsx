@@ -44,7 +44,14 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    fetchBoards().then(setBoards).catch(() => {});
+    fetchBoards()
+      .then(boards => {
+        console.log('Boards fetched:', boards);
+        setBoards(boards);
+      })
+      .catch(err => {
+        console.error('Failed to fetch boards:', err);
+      });
   }, []);
 
   useEffect(() => {
@@ -147,10 +154,11 @@ export default function App() {
               onChange={(e) => handleBoardFilter(e.target.value)}
               className="text-sm border border-gray-300 dark:border-gray-600 rounded-lg px-3 py-1.5 bg-white dark:bg-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500"
             >
-              <option value="">All boards</option>
+              <option value="">All boards {boards.length === 0 ? '(loading...)' : ''}</option>
               {boards.map((b) => (
                 <option key={b.id} value={b.key || b.name}>{b.name}</option>
               ))}
+              {boards.length === 0 && <option disabled>No boards available</option>}
             </select>
             <div className="h-4 w-px bg-gray-300 dark:bg-gray-700" />
             {PRESETS.map((p) => (
