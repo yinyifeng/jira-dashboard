@@ -1,0 +1,191 @@
+import express from 'express';
+import cors from 'cors';
+
+// Secrets are injected by Doppler via `doppler run` — no .env needed.
+// Run: doppler run -- node server.js
+
+const app = express();
+app.use(cors());
+app.use(express.json());
+
+const { JIRA_BASE_URL, JIRA_EMAIL, JIRA_API_TOKEN } = process.env;
+
+if (!JIRA_BASE_URL || !JIRA_EMAIL || !JIRA_API_TOKEN) {
+  console.error('Missing required env vars: JIRA_BASE_URL, JIRA_EMAIL, JIRA_API_TOKEN');
+  console.error('Run with: doppler run -- node server.js');
+  console.error('Or set secrets in Doppler: doppler secrets set JIRA_BASE_URL JIRA_EMAIL JIRA_API_TOKEN');
+  process.exit(1);
+}
+
+const authHeader = 'Basic ' + Buffer.from(`${JIRA_EMAIL}:${JIRA_API_TOKEN}`).toString('base64');
+
+async function jiraFetch(path, options = {}) {
+  const url = `${JIRA_BASE_URL}/rest/api/3${path}`;
+  const res = await fetch(url, {
+    ...options,
+    headers: {
+      Authorization: authHeader,
+      'Content-Type': 'application/json',
+      Accept: 'application/json',
+      ...options.headers,
+    },
+  });
+
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(`Jira API ${res.status}: ${text}`);
+  }
+
+  return res.json();
+}
+
+// Get all boards the user has access to
+app.get('/api/boards', async (req, res) => {
+  try {
+    const data = await jiraFetch('/board', {});
+    // board endpoint is under agile API
+    const url = `${JIRA_BASE_URL}/rest/agile/1.0/board`;
+    const agileRes = await fetch(url, {
+      headers: { Authorization: authHeader, Accept: 'application/json' },
+    });
+    if (!agileRes.ok) {
+      // Fallback: return projects instead
+      const projects = await jiraFetch('/project');
+      res.json({ boards: projects.map(p => ({ id: p.id, name: p.name, type: 'project', key: p.key })) });
+      return;
+    }
+    const agileData = await agileRes.json();
+    res.json({ boards: agileData.values || [] });
+  } catch (err) {
+    // If agile API not available, fallback to projects
+    try {
+      const projects = await jiraFetch('/project');
+      res.json({ boards: projects.map(p => ({ id: p.id, name: p.name, type: 'project', key: p.key })) });
+    } catch (e) {
+      res.status(500).json({ error: e.message });
+    }
+  }
+});
+
+// Search issues with JQL
+app.get('/api/issues', async (req, res) => {
+  try {
+    const { jql, startAt = 0, maxResults = 50 } = req.query;
+    const defaultJql = 'assignee = currentUser() ORDER BY updated DESC';
+    const query = jql || defaultJql;
+    const data = await jiraFetch(
+      `/search?jql=${encodeURIComponent(query)}&startAt=${startAt}&maxResults=${maxResults}&expand=names,schema`
+    );
+    res.json(data);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Get single issue
+app.get('/api/issues/:key', async (req, res) => {
+  try {
+    const data = await jiraFetch(`/issue/${req.params.key}`);
+    res.json(data);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Update issue fields
+app.put('/api/issues/:key', async (req, res) => {
+  try {
+    const url = `${JIRA_BASE_URL}/rest/api/3/issue/${req.params.key}`;
+    const jiraRes = await fetch(url, {
+      method: 'PUT',
+      headers: {
+        Authorization: authHeader,
+        'Content-Type': 'application/json',
+        Accept: 'application/json',
+      },
+      body: JSON.stringify({ fields: req.body.fields }),
+    });
+
+    if (!jiraRes.ok) {
+      const text = await jiraRes.text();
+      res.status(jiraRes.status).json({ error: text });
+      return;
+    }
+
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Get transitions for an issue
+app.get('/api/issues/:key/transitions', async (req, res) => {
+  try {
+    const data = await jiraFetch(`/issue/${req.params.key}/transitions`);
+    res.json(data);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Transition an issue (change status)
+app.post('/api/issues/:key/transitions', async (req, res) => {
+  try {
+    const url = `${JIRA_BASE_URL}/rest/api/3/issue/${req.params.key}/transitions`;
+    const jiraRes = await fetch(url, {
+      method: 'POST',
+      headers: {
+        Authorization: authHeader,
+        'Content-Type': 'application/json',
+        Accept: 'application/json',
+      },
+      body: JSON.stringify({ transition: { id: req.body.transitionId } }),
+    });
+
+    if (!jiraRes.ok) {
+      const text = await jiraRes.text();
+      res.status(jiraRes.status).json({ error: text });
+      return;
+    }
+
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Get all statuses
+app.get('/api/statuses', async (req, res) => {
+  try {
+    const data = await jiraFetch('/status');
+    res.json(data);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Get all priorities
+app.get('/api/priorities', async (req, res) => {
+  try {
+    const data = await jiraFetch('/priority');
+    res.json(data);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Search users (for assignee)
+app.get('/api/users', async (req, res) => {
+  try {
+    const { query = '' } = req.query;
+    const data = await jiraFetch(`/user/search?query=${encodeURIComponent(query)}&maxResults=10`);
+    res.json(data);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+const PORT = process.env.PORT || 3001;
+app.listen(PORT, () => {
+  console.log(`Jira proxy server running on http://localhost:${PORT}`);
+});
