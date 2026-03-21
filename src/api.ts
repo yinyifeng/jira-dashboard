@@ -5,7 +5,7 @@ export interface JiraIssue {
   key: string;
   fields: {
     summary: string;
-    status: { name: string; statusCategory: { colorName: string } };
+    status: { name: string; statusCategory: { name: string; colorName: string } };
     priority: { name: string; iconUrl: string } | null;
     assignee: { displayName: string; avatarUrls: Record<string, string>; accountId: string } | null;
     issuetype: { name: string; iconUrl: string };

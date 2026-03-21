@@ -31,7 +31,7 @@ export default function App() {
     setLoading(true);
     setError('');
     try {
-      const data = await fetchIssues(query, token);
+      const data = await fetchIssues(query, token, 50);
       setIssues(data.issues);
       setNextPageToken(data.nextPageToken);
       setIsLast(data.isLast);
