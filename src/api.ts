@@ -32,6 +32,20 @@ async function authFetch(url: string, options: RequestInit = {}): Promise<Respon
   return res;
 }
 
+export async function fetchAuthMethods(): Promise<{ google: boolean; password: boolean }> {
+  try {
+    const res = await fetch(`${API_BASE}/api/auth/methods`);
+    if (!res.ok) return { google: false, password: true };
+    return res.json();
+  } catch {
+    return { google: false, password: true };
+  }
+}
+
+export function loginWithGoogle() {
+  window.location.href = `${API_BASE}/api/auth/google`;
+}
+
 export async function login(username: string, password: string): Promise<void> {
   const res = await fetch(`${API_BASE}/api/auth/login`, {
     method: 'POST',

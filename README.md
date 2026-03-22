@@ -17,6 +17,7 @@ A custom Jira dashboard for tracking team issues, built with React + TypeScript 
   - Linked issues (view, create, delete)
   - Activity tabs: All, Comments, History, Work log
 - **Due Dates** — Displayed on Kanban cards with overdue/due-soon color indicators
+- **Authentication** — Google OAuth 2.0 with email allowlisting, or username/password login
 - **Settings** — Manage custom teams (create, rename, add/remove Jira users)
 
 ## Tech Stack
@@ -39,8 +40,12 @@ A custom Jira dashboard for tracking team issues, built with React + TypeScript 
 | `JIRA_BASE_URL` | Jira Cloud instance URL (e.g. `https://yourorg.atlassian.net`) |
 | `JIRA_EMAIL` | Jira account email |
 | `JIRA_API_TOKEN` | Jira API token |
-| `DASHBOARD_USER` | Dashboard login username |
-| `DASHBOARD_PASS` | Dashboard login password |
+| `DASHBOARD_USER` | Dashboard login username (optional if using Google OAuth) |
+| `DASHBOARD_PASS` | Dashboard login password (optional if using Google OAuth) |
+| `GOOGLE_CLIENT_ID` | Google OAuth 2.0 client ID (optional) |
+| `GOOGLE_CLIENT_SECRET` | Google OAuth 2.0 client secret (optional) |
+| `ALLOWED_EMAILS` | Comma-separated email allowlist for Google OAuth (optional) |
+| `FRONTEND_URL` | Frontend URL for OAuth redirects in dev (e.g. `http://localhost:5175`) |
 
 ### Development
 
@@ -80,6 +85,7 @@ npm run build
 │       ├── KanbanCard.tsx     # Draggable issue card
 │       ├── IssueTable.tsx     # Table view
 │       ├── IssueDetailPanel.tsx # Issue detail modal
+│       ├── LoginPage.tsx      # Login page (Google OAuth + password)
 │       ├── StatusBadge.tsx    # Status badge component
 │       └── SettingsPanel.tsx  # Team management settings
 ├── teams.json                 # Shared team configs (server-managed)

@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import { fetchIssues, checkAuth, logout, fetchStatuses, fetchPriorities, fetchTeams, type JiraIssue, type TeamConfig } from './api';
+import { fetchIssues, checkAuth, logout, setToken, fetchStatuses, fetchPriorities, fetchTeams, type JiraIssue, type TeamConfig } from './api';
 import IssueTable from './components/IssueTable';
 import IssueDetailPanel from './components/IssueDetailPanel';
 import KanbanBoard from './components/KanbanBoard';
@@ -106,6 +106,15 @@ export default function App() {
   }, []);
 
   useEffect(() => {
+    // Check for OAuth token in URL (Google OAuth callback)
+    const params = new URLSearchParams(window.location.search);
+    const oauthToken = params.get('token');
+    if (oauthToken) {
+      setToken(oauthToken);
+      window.history.replaceState({}, '', '/');
+      setAuthed(true);
+      return;
+    }
     checkAuth().then(setAuthed);
   }, []);
 

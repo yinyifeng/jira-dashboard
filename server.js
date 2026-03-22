@@ -14,7 +14,11 @@ app.use(cors({
 }));
 app.use(express.json());
 
-const { JIRA_BASE_URL, JIRA_EMAIL, JIRA_API_TOKEN, DASHBOARD_USER, DASHBOARD_PASS } = process.env;
+const {
+  JIRA_BASE_URL, JIRA_EMAIL, JIRA_API_TOKEN,
+  DASHBOARD_USER, DASHBOARD_PASS,
+  GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, ALLOWED_EMAILS,
+} = process.env;
 
 if (!JIRA_BASE_URL || !JIRA_EMAIL || !JIRA_API_TOKEN) {
   console.error('Missing required env vars: JIRA_BASE_URL, JIRA_EMAIL, JIRA_API_TOKEN');
@@ -22,10 +26,19 @@ if (!JIRA_BASE_URL || !JIRA_EMAIL || !JIRA_API_TOKEN) {
   process.exit(1);
 }
 
-if (!DASHBOARD_USER || !DASHBOARD_PASS) {
-  console.error('Missing required env vars: DASHBOARD_USER, DASHBOARD_PASS');
-  console.error('Set login credentials: doppler secrets set DASHBOARD_USER DASHBOARD_PASS');
+const useGoogleAuth = !!(GOOGLE_CLIENT_ID && GOOGLE_CLIENT_SECRET);
+const usePasswordAuth = !!(DASHBOARD_USER && DASHBOARD_PASS);
+
+if (!useGoogleAuth && !usePasswordAuth) {
+  console.error('Missing auth config. Set either:');
+  console.error('  - GOOGLE_CLIENT_ID + GOOGLE_CLIENT_SECRET (+ ALLOWED_EMAILS) for Google OAuth');
+  console.error('  - DASHBOARD_USER + DASHBOARD_PASS for password auth');
   process.exit(1);
+}
+
+const allowedEmails = (ALLOWED_EMAILS || '').split(',').map(e => e.trim().toLowerCase()).filter(Boolean);
+if (useGoogleAuth) {
+  console.log(`Google OAuth enabled. Allowed emails: ${allowedEmails.length > 0 ? allowedEmails.join(', ') : 'ALL (no restriction)'}`);
 }
 
 const authHeader = 'Basic ' + Buffer.from(`${JIRA_EMAIL}:${JIRA_API_TOKEN}`).toString('base64');
@@ -34,12 +47,23 @@ const authHeader = 'Basic ' + Buffer.from(`${JIRA_EMAIL}:${JIRA_API_TOKEN}`).toS
 const sessions = new Map(); // token -> { expiresAt }
 const SESSION_TTL = 7 * 24 * 60 * 60 * 1000; // 7 days
 
+// --- Auth method info ---
+app.get('/api/auth/methods', (req, res) => {
+  res.json({
+    google: useGoogleAuth,
+    password: usePasswordAuth,
+  });
+});
+
+// --- Password login (legacy, only if configured) ---
 app.post('/api/auth/login', (req, res) => {
+  if (!usePasswordAuth) {
+    return res.status(404).json({ error: 'Password auth not configured' });
+  }
   const { username, password } = req.body;
   if (!username || !password) {
     return res.status(400).json({ error: 'Username and password required' });
   }
-  // Constant-time comparison to prevent timing attacks
   const userMatch = crypto.timingSafeEqual(
     Buffer.from(username.padEnd(256)),
     Buffer.from(DASHBOARD_USER.padEnd(256)),
@@ -54,6 +78,90 @@ app.post('/api/auth/login', (req, res) => {
   const token = crypto.randomBytes(32).toString('hex');
   sessions.set(token, { expiresAt: Date.now() + SESSION_TTL });
   res.json({ token, expiresIn: SESSION_TTL });
+});
+
+// --- Google OAuth ---
+const GOOGLE_REDIRECT_URI = process.env.GOOGLE_REDIRECT_URI || (
+  process.env.NODE_ENV === 'production'
+    ? 'https://jira.yinyi.dev/api/auth/google/callback'
+    : 'http://localhost:3001/api/auth/google/callback'
+);
+const FRONTEND_URL = process.env.FRONTEND_URL || (
+  process.env.NODE_ENV === 'production'
+    ? ''
+    : 'http://localhost:5175'
+);
+
+app.get('/api/auth/google', (req, res) => {
+  if (!useGoogleAuth) return res.status(404).json({ error: 'Google auth not configured' });
+  const params = new URLSearchParams({
+    client_id: GOOGLE_CLIENT_ID,
+    redirect_uri: GOOGLE_REDIRECT_URI,
+    response_type: 'code',
+    scope: 'openid email profile',
+    access_type: 'online',
+    prompt: 'select_account',
+  });
+  res.redirect(`https://accounts.google.com/o/oauth2/v2/auth?${params}`);
+});
+
+app.get('/api/auth/google/callback', async (req, res) => {
+  if (!useGoogleAuth) return res.status(404).json({ error: 'Google auth not configured' });
+  const { code, error } = req.query;
+  if (error || !code) {
+    return res.redirect(`${FRONTEND_URL}/?error=google_auth_denied`);
+  }
+  try {
+    // Exchange code for tokens
+    const tokenRes = await fetch('https://oauth2.googleapis.com/token', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({
+        code,
+        client_id: GOOGLE_CLIENT_ID,
+        client_secret: GOOGLE_CLIENT_SECRET,
+        redirect_uri: GOOGLE_REDIRECT_URI,
+        grant_type: 'authorization_code',
+      }),
+    });
+    if (!tokenRes.ok) {
+      const text = await tokenRes.text();
+      console.error('Google token exchange failed:', text);
+      return res.redirect(`${FRONTEND_URL}/?error=google_token_failed`);
+    }
+    const tokenData = await tokenRes.json();
+
+    // Get user info
+    const userRes = await fetch('https://www.googleapis.com/oauth2/v2/userinfo', {
+      headers: { Authorization: `Bearer ${tokenData.access_token}` },
+    });
+    if (!userRes.ok) {
+      return res.redirect(`${FRONTEND_URL}/?error=google_userinfo_failed`);
+    }
+    const userInfo = await userRes.json();
+    const email = (userInfo.email || '').toLowerCase();
+
+    // Check allowlist
+    if (allowedEmails.length > 0 && !allowedEmails.includes(email)) {
+      console.warn(`Google login denied for: ${email}`);
+      return res.redirect(`${FRONTEND_URL}/?error=email_not_allowed&email=${encodeURIComponent(email)}`);
+    }
+
+    // Create session
+    const sessionToken = crypto.randomBytes(32).toString('hex');
+    sessions.set(sessionToken, {
+      expiresAt: Date.now() + SESSION_TTL,
+      email,
+      name: userInfo.name,
+      picture: userInfo.picture,
+    });
+
+    // Redirect to frontend with token
+    res.redirect(`${FRONTEND_URL}/?token=${sessionToken}`);
+  } catch (err) {
+    console.error('Google OAuth error:', err);
+    res.redirect(`${FRONTEND_URL}/?error=google_auth_error`);
+  }
 });
 
 app.post('/api/auth/logout', (req, res) => {
