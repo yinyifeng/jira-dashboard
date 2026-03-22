@@ -986,7 +986,7 @@ export default function IssueDetailPanel({ issueKey, onClose, onUpdated }: Issue
                       <div className="flex gap-2">
                         <button onClick={() => handleSaveField('customfield_10015', fieldDraft || null)} disabled={savingField} className="text-xs px-2.5 py-1 bg-blue-600 text-white rounded-md disabled:opacity-50">{savingField ? 'Saving...' : 'Save'}</button>
                         <button onClick={() => setEditingField(null)} className="text-xs text-gray-400 hover:underline">Cancel</button>
-                        {(issue.fields.customfield_10015 || issue.fields.startDate) && (
+                        {((issue.fields.customfield_10015 as string) || (issue.fields.startDate as string)) && (
                           <button onClick={() => handleSaveField('customfield_10015', null)} className="text-xs text-red-400 hover:underline">Clear</button>
                         )}
                       </div>
@@ -1023,7 +1023,7 @@ export default function IssueDetailPanel({ issueKey, onClose, onUpdated }: Issue
                       <div className="flex gap-2">
                         <button onClick={() => handleSaveField('duedate', fieldDraft || null)} disabled={savingField} className="text-xs px-2.5 py-1 bg-blue-600 text-white rounded-md disabled:opacity-50">{savingField ? 'Saving...' : 'Save'}</button>
                         <button onClick={() => setEditingField(null)} className="text-xs text-gray-400 hover:underline">Cancel</button>
-                        {issue.fields.duedate && (
+                        {(issue.fields.duedate as string) && (
                           <button onClick={() => handleSaveField('duedate', null)} className="text-xs text-red-400 hover:underline">Clear</button>
                         )}
                       </div>
@@ -1053,7 +1053,7 @@ export default function IssueDetailPanel({ issueKey, onClose, onUpdated }: Issue
                         ? new Date(issue.fields.resolutiondate as string).toLocaleDateString()
                         : <span className="text-gray-400 italic">Not completed</span>}
                   </span>
-                  {issue.fields.status.statusCategory?.name === 'Done' && issue.fields.statuscategorychangedate && (
+                  {issue.fields.status.statusCategory?.name === 'Done' && (issue.fields.statuscategorychangedate as string) && (
                     <span className="block text-xs text-gray-400 mt-0.5" title={new Date(issue.fields.statuscategorychangedate as string).toLocaleString()}>
                       {timeAgo(issue.fields.statuscategorychangedate as string)}
                     </span>
