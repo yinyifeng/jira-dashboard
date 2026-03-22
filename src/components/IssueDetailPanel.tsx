@@ -18,6 +18,8 @@ import {
   deleteComment,
   updateIssue,
   uploadAttachments,
+  deleteAttachment,
+  getAttachmentProxyUrl,
   type JiraIssue,
   type JiraComment,
   type IssueLink,
@@ -101,6 +103,7 @@ interface AttachmentInfo {
   mimeType: string;
   content: string;
   thumbnail?: string;
+  created?: string;
 }
 
 type AttachmentMap = Map<string, AttachmentInfo>;
@@ -184,6 +187,23 @@ function collectAdfMediaRefs(node: unknown): Set<string> {
   return refs;
 }
 
+// Find attachments created within a time window of a given timestamp (for associating with comments)
+function findAttachmentsByTime(
+  allAtts: AttachmentInfo[],
+  timestamp: string,
+  windowMs = 30000, // 30 second window
+  adfMediaRefs?: Set<string>,
+): AttachmentInfo[] {
+  const target = new Date(timestamp).getTime();
+  return allAtts.filter((att) => {
+    if (!att.created) return false;
+    // Skip attachments already referenced in ADF
+    if (adfMediaRefs && (adfMediaRefs.has(att.id) || adfMediaRefs.has(att.filename))) return false;
+    const diff = Math.abs(new Date(att.created).getTime() - target);
+    return diff < windowMs;
+  });
+}
+
 export default function IssueDetailPanel({ issueKey, onClose, onUpdated, onSelectIssue }: IssueDetailPanelProps) {
   const [issue, setIssue] = useState<JiraIssue | null>(null);
   const [comments, setComments] = useState<JiraComment[]>([]);
@@ -191,17 +211,50 @@ export default function IssueDetailPanel({ issueKey, onClose, onUpdated, onSelec
   const [error, setError] = useState('');
 
   // Build attachment lookup maps from issue data (by ID and by filename)
+  // Rewrite content URLs to use our proxy (Jira URLs require auth)
   const attachmentMap = useMemo(() => {
     const map: AttachmentMap = new Map();
     const atts = issue?.fields?.attachment as AttachmentInfo[] | undefined;
     if (atts) {
-      for (const att of atts) {
+      for (const raw of atts) {
+        const att = { ...raw, content: getAttachmentProxyUrl(raw.id) };
         map.set(att.id, att);
         map.set(att.filename, att);
       }
     }
     return map;
   }, [issue]);
+
+  // Map comment IDs to their associated attachments (uploaded at same time, not in ADF)
+  const commentAttachments = useMemo(() => {
+    const result = new Map<string, AttachmentInfo[]>();
+    const allAtts = (issue?.fields?.attachment || []) as AttachmentInfo[];
+    if (allAtts.length === 0 || comments.length === 0) return result;
+
+    // Collect all ADF media refs across all comments and description
+    const allMediaRefs = new Set<string>();
+    for (const ref of collectAdfMediaRefs(issue?.fields?.description)) allMediaRefs.add(ref);
+    for (const c of comments) {
+      for (const ref of collectAdfMediaRefs(c.body)) allMediaRefs.add(ref);
+    }
+
+    for (const c of comments) {
+      const matched = findAttachmentsByTime(allAtts, c.created, 30000, allMediaRefs);
+      if (matched.length > 0) {
+        result.set(c.id, matched);
+      }
+    }
+    return result;
+  }, [issue, comments]);
+
+  // Set of attachment IDs associated with comments (to exclude from description)
+  const commentAttachmentIds = useMemo(() => {
+    const ids = new Set<string>();
+    for (const atts of commentAttachments.values()) {
+      for (const att of atts) ids.add(att.id);
+    }
+    return ids;
+  }, [commentAttachments]);
 
   // Description editing
   const [editingDesc, setEditingDesc] = useState(false);
@@ -359,11 +412,34 @@ export default function IssueDetailPanel({ issueKey, onClose, onUpdated, onSelec
   };
 
   const handleDeleteComment = async (commentId: string) => {
+    // Optimistically remove from UI first
+    setComments((prev) => prev.filter((c) => c.id !== commentId));
     try {
       await deleteComment(issueKey, commentId);
-      setComments((prev) => prev.filter((c) => c.id !== commentId));
-    } catch (e) {
-      setError(e instanceof Error ? e.message : 'Failed to delete comment');
+    } catch {
+      // Comment may already be deleted — ignore errors since UI already updated
+    }
+    // Refresh to sync state
+    try {
+      const [updated, refreshed] = await Promise.all([fetchComments(issueKey), fetchIssueDetail(issueKey)]);
+      setComments(updated);
+      setIssue(refreshed);
+    } catch {
+      // ignore refresh errors
+    }
+  };
+
+  const handleDeleteAttachment = async (attachmentId: string) => {
+    try {
+      await deleteAttachment(attachmentId);
+    } catch {
+      // ignore — may already be deleted
+    }
+    try {
+      const refreshed = await fetchIssueDetail(issueKey);
+      setIssue(refreshed);
+    } catch {
+      // ignore refresh errors
     }
   };
 
@@ -840,15 +916,21 @@ export default function IssueDetailPanel({ issueKey, onClose, onUpdated, onSelec
                   ) : (
                     <div
                       className="cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-800 rounded-lg transition-colors"
-                      onClick={() => setEditingDesc(true)}
+                      onClick={(e) => {
+                        // Don't enter edit mode if clicking a delete button or image
+                        const target = e.target as HTMLElement;
+                        if (target.closest('[data-att-action]')) return;
+                        setEditingDesc(true);
+                      }}
                       title="Click to edit"
                     >
                       {(() => {
                         const descHtml = adfToHtml(issue.fields.description, attachmentMap);
-                        const allAtts = (issue.fields.attachment || []) as { id: string; filename: string; mimeType: string; content: string; thumbnail?: string; created: string }[];
+                        const rawAtts = (issue.fields.attachment || []) as { id: string; filename: string; mimeType: string; content: string; thumbnail?: string; created: string }[];
+                        const allAtts = rawAtts.map(a => ({ ...a, content: getAttachmentProxyUrl(a.id) }));
                         // Find attachments not already rendered via ADF media nodes
                         const mediaRefs = collectAdfMediaRefs(issue.fields.description);
-                        const unreferencedAtts = allAtts.filter((att) => !mediaRefs.has(att.id) && !mediaRefs.has(att.filename));
+                        const unreferencedAtts = allAtts.filter((att) => !mediaRefs.has(att.id) && !mediaRefs.has(att.filename) && !commentAttachmentIds.has(att.id));
 
                         if (!descHtml && unreferencedAtts.length === 0) {
                           return (
@@ -863,26 +945,39 @@ export default function IssueDetailPanel({ issueKey, onClose, onUpdated, onSelec
                             {descHtml && <div dangerouslySetInnerHTML={{ __html: descHtml }} />}
                             {unreferencedAtts.map((att) => {
                               const isImage = att.mimeType?.startsWith('image/');
-                              return isImage ? (
-                                <img
-                                  key={att.id}
-                                  src={att.content}
-                                  alt={att.filename}
-                                  className="adf-media-img"
-                                  style={{ maxWidth: '100%', borderRadius: 6, margin: '8px 0', cursor: 'zoom-in' }}
-                                  onClick={(e) => { e.stopPropagation(); setLightboxSrc(att.content); }}
-                                />
-                              ) : (
-                                <a
-                                  key={att.id}
-                                  href={att.content}
-                                  target="_blank"
-                                  rel="noopener noreferrer"
-                                  onClick={(e) => e.stopPropagation()}
-                                  style={{ display: 'inline-flex', alignItems: 'center', gap: 4, padding: '4px 8px', background: '#f3f4f6', borderRadius: 6, fontSize: 12, textDecoration: 'none', color: '#374151', margin: '8px 0' }}
-                                >
-                                  {att.filename}
-                                </a>
+                              return (
+                                <div key={att.id} style={{ position: 'relative', margin: '8px 0' }}>
+                                  {isImage ? (
+                                    <img
+                                      src={att.content}
+                                      alt={att.filename}
+                                      data-att-action="view"
+                                      className="adf-media-img"
+                                      style={{ maxWidth: '100%', borderRadius: 6, cursor: 'zoom-in' }}
+                                      onClick={(e) => { e.stopPropagation(); setLightboxSrc(att.content); }}
+                                    />
+                                  ) : (
+                                    <a
+                                      href={att.content}
+                                      target="_blank"
+                                      rel="noopener noreferrer"
+                                      onClick={(e) => e.stopPropagation()}
+                                      style={{ display: 'inline-flex', alignItems: 'center', gap: 4, padding: '4px 8px', background: '#f3f4f6', borderRadius: 6, fontSize: 12, textDecoration: 'none', color: '#374151' }}
+                                    >
+                                      {att.filename}
+                                    </a>
+                                  )}
+                                  <button
+                                    data-att-action="delete"
+                                    onClick={(e) => { e.stopPropagation(); e.preventDefault(); handleDeleteAttachment(att.id); }}
+                                    style={{ position: 'absolute', top: 4, right: 4, width: 24, height: 24, borderRadius: '50%', background: 'rgba(0,0,0,0.5)', border: 'none', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', color: 'white', zIndex: 10 }}
+                                    title="Delete attachment"
+                                  >
+                                    <svg width="14" height="14" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                                    </svg>
+                                  </button>
+                                </div>
                               );
                             })}
                           </div>
@@ -1253,6 +1348,29 @@ export default function IssueDetailPanel({ issueKey, onClose, onUpdated, onSelec
                                   <span className="text-xs text-gray-400" title={new Date(c.created).toLocaleString()}>{timeAgo(c.created)}</span>
                                 </div>
                                 <div className="adf-content text-sm text-gray-700 dark:text-gray-300 leading-relaxed" dangerouslySetInnerHTML={{ __html: adfToHtml(c.body, attachmentMap) }} />
+                                {commentAttachments.get(c.id)?.map((att) => {
+                                  const isImage = att.mimeType?.startsWith('image/');
+                                  return isImage ? (
+                                    <img
+                                      key={att.id}
+                                      src={att.content}
+                                      alt={att.filename}
+                                      className="adf-media-img"
+                                      style={{ maxWidth: '100%', borderRadius: 6, margin: '8px 0', cursor: 'zoom-in' }}
+                                      onClick={() => setLightboxSrc(att.content)}
+                                    />
+                                  ) : (
+                                    <a
+                                      key={att.id}
+                                      href={att.content}
+                                      target="_blank"
+                                      rel="noopener noreferrer"
+                                      style={{ display: 'inline-flex', alignItems: 'center', gap: 4, padding: '4px 8px', background: '#f3f4f6', borderRadius: 6, fontSize: 12, textDecoration: 'none', color: '#374151', margin: '8px 0' }}
+                                    >
+                                      {att.filename}
+                                    </a>
+                                  );
+                                })}
                               </div>
                             </div>
                           );
@@ -1353,6 +1471,29 @@ export default function IssueDetailPanel({ issueKey, onClose, onUpdated, onSelec
                               ) : (
                                 <div className="group">
                                   <div className="adf-content text-sm text-gray-700 dark:text-gray-300 leading-relaxed" dangerouslySetInnerHTML={{ __html: adfToHtml(c.body, attachmentMap) }} />
+                                  {commentAttachments.get(c.id)?.map((att) => {
+                                    const isImage = att.mimeType?.startsWith('image/');
+                                    return isImage ? (
+                                      <img
+                                        key={att.id}
+                                        src={att.content}
+                                        alt={att.filename}
+                                        className="adf-media-img"
+                                        style={{ maxWidth: '100%', borderRadius: 6, margin: '8px 0', cursor: 'zoom-in' }}
+                                        onClick={() => setLightboxSrc(att.content)}
+                                      />
+                                    ) : (
+                                      <a
+                                        key={att.id}
+                                        href={att.content}
+                                        target="_blank"
+                                        rel="noopener noreferrer"
+                                        style={{ display: 'inline-flex', alignItems: 'center', gap: 4, padding: '4px 8px', background: '#f3f4f6', borderRadius: 6, fontSize: 12, textDecoration: 'none', color: '#374151', margin: '8px 0' }}
+                                      >
+                                        {att.filename}
+                                      </a>
+                                    );
+                                  })}
                                   <div className="flex gap-3 mt-1 opacity-0 group-hover:opacity-100 transition-opacity">
                                     <button onClick={() => startEditComment(c)} className="text-xs text-gray-400 hover:text-blue-600">Edit</button>
                                     <button onClick={() => handleDeleteComment(c.id)} className="text-xs text-gray-400 hover:text-red-500">Delete</button>

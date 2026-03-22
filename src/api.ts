@@ -387,3 +387,13 @@ export async function uploadAttachments(issueKey: string, files: File[]): Promis
   }
   return res.json();
 }
+
+export async function deleteAttachment(attachmentId: string): Promise<void> {
+  const res = await authFetch(`${API_BASE}/api/attachments/${attachmentId}`, { method: 'DELETE' });
+  if (!res.ok) throw new Error('Failed to delete attachment');
+}
+
+export function getAttachmentProxyUrl(attachmentId: string): string {
+  const token = getToken();
+  return `${API_BASE}/api/attachments/${attachmentId}/content${token ? `?token=${encodeURIComponent(token)}` : ''}`;
+}

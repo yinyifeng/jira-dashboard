@@ -185,7 +185,8 @@ app.get('/api/auth/check', (req, res) => {
 // Auth middleware — protect all /api routes except /api/auth/*
 app.use('/api', (req, res, next) => {
   if (req.path.startsWith('/auth/')) return next();
-  const token = req.headers.authorization?.replace('Bearer ', '');
+  // Allow token via query param for img src (attachment content proxy)
+  const token = req.headers.authorization?.replace('Bearer ', '') || req.query.token;
   if (!token) return res.status(401).json({ error: 'Authentication required' });
   const session = sessions.get(token);
   if (!session || session.expiresAt < Date.now()) {
@@ -554,6 +555,44 @@ app.post('/api/issues/:key/attachments', upload.array('files', 10), async (req, 
     }
     const data = await jiraRes.json();
     res.json(data);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Delete attachment
+app.delete('/api/attachments/:id', async (req, res) => {
+  try {
+    const url = `${JIRA_BASE_URL}/rest/api/3/attachment/${req.params.id}`;
+    const jiraRes = await fetch(url, {
+      method: 'DELETE',
+      headers: { Authorization: authHeader },
+    });
+    if (!jiraRes.ok) {
+      const text = await jiraRes.text();
+      return res.status(jiraRes.status).json({ error: text });
+    }
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Proxy attachment content (images need auth to load from Jira)
+app.get('/api/attachments/:id/content', async (req, res) => {
+  try {
+    const url = `${JIRA_BASE_URL}/rest/api/3/attachment/content/${req.params.id}`;
+    const jiraRes = await fetch(url, {
+      headers: { Authorization: authHeader },
+      redirect: 'follow',
+    });
+    if (!jiraRes.ok) {
+      return res.status(jiraRes.status).send('Failed to fetch attachment');
+    }
+    const contentType = jiraRes.headers.get('content-type');
+    if (contentType) res.setHeader('Content-Type', contentType);
+    const buffer = await jiraRes.arrayBuffer();
+    res.send(Buffer.from(buffer));
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
