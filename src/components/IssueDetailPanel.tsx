@@ -1143,8 +1143,8 @@ export default function IssueDetailPanel({ issueKey, onClose, onUpdated, onSelec
                                 Logged <span className="font-medium text-gray-700 dark:text-gray-300">{w.timeSpent}</span>
                                 {' '}on {new Date(w.started).toLocaleDateString()}
                               </p>
-                              {w.comment && (
-                                <div className="adf-content text-xs text-gray-500 mt-1" dangerouslySetInnerHTML={{ __html: adfToHtml(w.comment) }} />
+                              {!!w.comment && (
+                                <div className="adf-content text-xs text-gray-500 mt-1" dangerouslySetInnerHTML={{ __html: adfToHtml(w.comment as Record<string, unknown>) }} />
                               )}
                             </div>
                           </div>

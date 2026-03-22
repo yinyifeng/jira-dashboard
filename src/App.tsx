@@ -19,7 +19,7 @@ export default function App() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [jql, setJql] = useState(PRESETS[0].jql);
-  const [jqlInput, setJqlInput] = useState(PRESETS[0].jql);
+  const [, setJqlInput] = useState(PRESETS[0].jql);
   const [boards, setBoards] = useState<{ key: string; name: string }[]>([]);
   const [selectedBoard, setSelectedBoard] = useState('');
   const [nextPageToken, setNextPageToken] = useState<string | undefined>();
@@ -167,10 +167,6 @@ export default function App() {
     loadIssues(jql);
   }, [jql, loadIssues, authed]);
 
-  const handleSearch = (e: React.FormEvent) => {
-    e.preventDefault();
-    setJql(jqlInput);
-  };
 
   const handlePreset = (preset: typeof PRESETS[number]) => {
     // Toggle: clicking the active preset deselects it

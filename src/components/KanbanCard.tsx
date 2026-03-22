@@ -73,7 +73,7 @@ export default function KanbanCard({ issue, isDragging, isTransitioning, onSelec
           {issue.key}
         </span>
         <div className="flex items-center gap-1.5">
-          {(issue.fields as Record<string, unknown>).duedate && (() => {
+          {!!(issue.fields as Record<string, unknown>).duedate && (() => {
             const due = new Date((issue.fields as Record<string, unknown>).duedate as string);
             const now = new Date();
             now.setHours(0, 0, 0, 0);

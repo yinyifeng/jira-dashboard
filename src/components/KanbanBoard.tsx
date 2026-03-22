@@ -72,7 +72,7 @@ function getIssueDateForColumn(issue: JiraIssue, category: string): Date {
 
 export default function KanbanBoard({ issues, onRefresh, onSelectIssue }: KanbanBoardProps) {
   const [activeIssue, setActiveIssue] = useState<JiraIssue | null>(null);
-  const [transitioning, setTransitioning] = useState<string | null>(null);
+  const transitioning = null; // Optimistic moves handle visual feedback now
   const [hiddenColumns, setHiddenColumns] = useState<Set<string>>(new Set());
   const [columnDateFilters, setColumnDateFilters] = useState<Record<string, string>>({});
   const [showColumnSettings, setShowColumnSettings] = useState(false);
