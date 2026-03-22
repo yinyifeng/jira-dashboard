@@ -8,9 +8,10 @@ interface KanbanColumnProps {
   issues: JiraIssue[];
   transitioning: string | null;
   onSelectIssue: (key: string) => void;
+  headerExtra?: React.ReactNode;
 }
 
-export default function KanbanColumn({ id, color, issues, transitioning, onSelectIssue }: KanbanColumnProps) {
+export default function KanbanColumn({ id, color, issues, transitioning, onSelectIssue, headerExtra }: KanbanColumnProps) {
   const { setNodeRef, isOver } = useDroppable({ id });
 
   return (
@@ -24,9 +25,10 @@ export default function KanbanColumn({ id, color, issues, transitioning, onSelec
       <div className="px-3 py-2.5 flex items-center gap-2">
         <span className={`w-2.5 h-2.5 rounded-full ${color}`} />
         <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-300">{id}</h3>
-        <span className="text-xs text-gray-400 bg-gray-200 dark:bg-gray-800 px-1.5 py-0.5 rounded-full ml-auto">
+        <span className="text-xs text-gray-400 bg-gray-200 dark:bg-gray-800 px-1.5 py-0.5 rounded-full">
           {issues.length}
         </span>
+        {headerExtra && <span className="ml-auto">{headerExtra}</span>}
       </div>
 
       {/* Cards */}

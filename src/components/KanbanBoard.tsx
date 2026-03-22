@@ -26,14 +26,26 @@ const COLUMNS = [
   { id: 'Done', colorName: 'green', color: 'bg-green-200 dark:bg-green-800' },
 ];
 
+function getStartOfWeek(): Date {
+  const now = new Date();
+  const day = now.getDay(); // 0=Sun, 1=Mon, ...
+  const diff = day === 0 ? 6 : day - 1; // days since Monday
+  const monday = new Date(now.getFullYear(), now.getMonth(), now.getDate() - diff);
+  monday.setHours(0, 0, 0, 0);
+  return monday;
+}
+
 export default function KanbanBoard({ issues, onRefresh, onSelectIssue }: KanbanBoardProps) {
   const [activeIssue, setActiveIssue] = useState<JiraIssue | null>(null);
   const [transitioning, setTransitioning] = useState<string | null>(null);
+  const [showAllDone, setShowAllDone] = useState(false);
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
     useSensor(TouchSensor, { activationConstraint: { delay: 200, tolerance: 5 } }),
   );
+
+  const weekStart = getStartOfWeek();
 
   const groupedIssues: Record<string, JiraIssue[]> = {};
   for (const col of COLUMNS) {
@@ -47,6 +59,14 @@ export default function KanbanBoard({ issues, onRefresh, onSelectIssue }: Kanban
       groupedIssues['To Do'].push(issue);
     }
   }
+
+  // Filter Done column to only show issues resolved/completed this week (since Monday)
+  const allDone = groupedIssues['Done'];
+  const thisWeekDone = allDone.filter((issue) => {
+    const doneDate = issue.fields.statuscategorychangedate || issue.fields.resolutiondate || issue.fields.updated;
+    return new Date(doneDate as string) >= weekStart;
+  });
+  groupedIssues['Done'] = showAllDone ? allDone : thisWeekDone;
 
   const handleDragStart = (event: DragStartEvent) => {
     const issue = issues.find((i) => i.key === event.active.id);
@@ -113,6 +133,14 @@ export default function KanbanBoard({ issues, onRefresh, onSelectIssue }: Kanban
             issues={groupedIssues[col.id]}
             transitioning={transitioning}
             onSelectIssue={onSelectIssue}
+            headerExtra={col.id === 'Done' ? (
+              <button
+                onClick={() => setShowAllDone(!showAllDone)}
+                className="text-[10px] px-1.5 py-0.5 rounded border border-gray-300 dark:border-gray-600 hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
+              >
+                {showAllDone ? 'This week' : `All (${allDone.length})`}
+              </button>
+            ) : undefined}
           />
         ))}
       </div>

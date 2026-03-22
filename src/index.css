@@ -1,1 +1,125 @@
 @import "tailwindcss";
+
+/* ADF rich content styles */
+.adf-content p {
+  margin-bottom: 0.5em;
+}
+.adf-content p:last-child {
+  margin-bottom: 0;
+}
+.adf-content h1 {
+  font-size: 1.5em;
+  font-weight: 700;
+  margin-top: 1em;
+  margin-bottom: 0.5em;
+  line-height: 1.3;
+}
+.adf-content h2 {
+  font-size: 1.25em;
+  font-weight: 700;
+  margin-top: 0.8em;
+  margin-bottom: 0.4em;
+  line-height: 1.3;
+}
+.adf-content h3 {
+  font-size: 1.1em;
+  font-weight: 600;
+  margin-top: 0.6em;
+  margin-bottom: 0.3em;
+  line-height: 1.3;
+}
+.adf-content h1:first-child,
+.adf-content h2:first-child,
+.adf-content h3:first-child {
+  margin-top: 0;
+}
+.adf-content ul,
+.adf-content ol {
+  margin: 0.5em 0;
+  padding-left: 1.5em;
+}
+.adf-content ul {
+  list-style-type: disc;
+}
+.adf-content ol {
+  list-style-type: decimal;
+}
+.adf-content li {
+  margin-bottom: 0.25em;
+}
+.adf-content li p {
+  margin-bottom: 0;
+}
+.adf-code {
+  font-family: ui-monospace, SFMono-Regular, 'SF Mono', Menlo, monospace;
+  font-size: 0.85em;
+  background: #f1f5f9;
+  padding: 0.15em 0.4em;
+  border-radius: 4px;
+  color: #e11d48;
+}
+@media (prefers-color-scheme: dark) {
+  .adf-code {
+    background: #1e293b;
+    color: #fb923c;
+  }
+}
+.adf-codeblock {
+  background: #f1f5f9;
+  border-radius: 6px;
+  padding: 0.75em 1em;
+  overflow-x: auto;
+  margin: 0.5em 0;
+  font-size: 0.85em;
+}
+@media (prefers-color-scheme: dark) {
+  .adf-codeblock {
+    background: #1e293b;
+  }
+}
+.adf-codeblock code {
+  font-family: ui-monospace, SFMono-Regular, 'SF Mono', Menlo, monospace;
+}
+.adf-blockquote {
+  border-left: 3px solid #d1d5db;
+  padding-left: 1em;
+  margin: 0.5em 0;
+  color: #6b7280;
+}
+.adf-content a.adf-link {
+  color: #2563eb;
+  text-decoration: none;
+}
+.adf-content a.adf-link:hover {
+  text-decoration: underline;
+}
+.adf-mention {
+  color: #2563eb;
+  font-weight: 500;
+}
+.adf-table {
+  border-collapse: collapse;
+  margin: 0.5em 0;
+  width: 100%;
+}
+.adf-table th,
+.adf-table td {
+  border: 1px solid #e5e7eb;
+  padding: 0.5em 0.75em;
+  text-align: left;
+}
+.adf-table th {
+  background: #f9fafb;
+  font-weight: 600;
+}
+.adf-panel {
+  background: #f0f9ff;
+  border-radius: 6px;
+  padding: 0.75em 1em;
+  margin: 0.5em 0;
+}
+.adf-content hr {
+  border: none;
+  border-top: 1px solid #e5e7eb;
+  margin: 1em 0;
+}

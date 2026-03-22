@@ -153,7 +153,7 @@ app.get('/api/issues', async (req, res) => {
     const body = {
       jql: query,
       maxResults: Number(maxResults),
-      fields: ['summary', 'status', 'priority', 'assignee', 'issuetype', 'project', 'updated', 'created', 'labels'],
+      fields: ['summary', 'status', 'priority', 'assignee', 'issuetype', 'project', 'updated', 'created', 'labels', 'resolutiondate', 'statuscategorychangedate'],
     };
     if (nextPageToken) {
       body.nextPageToken = nextPageToken;
@@ -255,6 +255,22 @@ app.get('/api/statuses', async (req, res) => {
   try {
     const data = await jiraFetch('/status');
     res.json(data);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Get issue types for a project
+app.get('/api/issuetypes', async (req, res) => {
+  try {
+    const { projectKey } = req.query;
+    if (projectKey) {
+      const data = await jiraFetch(`/issue/createmeta/${projectKey}/issuetypes`);
+      res.json(data.issueTypes || data.values || data);
+    } else {
+      const data = await jiraFetch('/issuetype');
+      res.json(data);
+    }
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

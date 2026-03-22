@@ -139,6 +139,13 @@ export async function fetchPriorities(): Promise<{ name: string; iconUrl: string
   return res.json();
 }
 
+export async function fetchIssueTypes(projectKey?: string): Promise<{ id: string; name: string; iconUrl: string }[]> {
+  const params = projectKey ? `?projectKey=${encodeURIComponent(projectKey)}` : '';
+  const res = await authFetch(`${API_BASE}/api/issuetypes${params}`);
+  if (!res.ok) throw new Error('Failed to fetch issue types');
+  return res.json();
+}
+
 export async function searchUsers(query: string): Promise<{ accountId: string; displayName: string }[]> {
   const res = await authFetch(`${API_BASE}/api/users?query=${encodeURIComponent(query)}`);
   if (!res.ok) throw new Error('Failed to search users');

@@ -2,6 +2,28 @@ import { useDraggable } from '@dnd-kit/core';
 import { type JiraIssue } from '../api';
 import StatusBadge from './StatusBadge';
 
+const PROJECT_THEMES: { border: string; badge: string }[] = [
+  { border: 'border-l-blue-500', badge: 'bg-blue-100 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300' },
+  { border: 'border-l-rose-500', badge: 'bg-rose-100 dark:bg-rose-900/40 text-rose-700 dark:text-rose-300' },
+  { border: 'border-l-emerald-500', badge: 'bg-emerald-100 dark:bg-emerald-900/40 text-emerald-700 dark:text-emerald-300' },
+  { border: 'border-l-violet-500', badge: 'bg-violet-100 dark:bg-violet-900/40 text-violet-700 dark:text-violet-300' },
+  { border: 'border-l-amber-500', badge: 'bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-300' },
+  { border: 'border-l-cyan-500', badge: 'bg-cyan-100 dark:bg-cyan-900/40 text-cyan-700 dark:text-cyan-300' },
+  { border: 'border-l-pink-500', badge: 'bg-pink-100 dark:bg-pink-900/40 text-pink-700 dark:text-pink-300' },
+  { border: 'border-l-lime-500', badge: 'bg-lime-100 dark:bg-lime-900/40 text-lime-700 dark:text-lime-300' },
+  { border: 'border-l-indigo-500', badge: 'bg-indigo-100 dark:bg-indigo-900/40 text-indigo-700 dark:text-indigo-300' },
+  { border: 'border-l-orange-500', badge: 'bg-orange-100 dark:bg-orange-900/40 text-orange-700 dark:text-orange-300' },
+];
+
+// Assign colors by order of appearance — guarantees visually distinct colors
+const projectColorMap = new Map<string, number>();
+function getProjectColorIndex(key: string): number {
+  if (!projectColorMap.has(key)) {
+    projectColorMap.set(key, projectColorMap.size % PROJECT_THEMES.length);
+  }
+  return projectColorMap.get(key)!;
+}
+
 interface KanbanCardProps {
   issue: JiraIssue;
   isDragging?: boolean;
@@ -10,9 +32,13 @@ interface KanbanCardProps {
 }
 
 export default function KanbanCard({ issue, isDragging, isTransitioning, onSelectIssue }: KanbanCardProps) {
+  const projectKey = issue.fields.project?.key || '';
+  const theme = PROJECT_THEMES[getProjectColorIndex(projectKey)];
   const { attributes, listeners, setNodeRef, transform } = useDraggable({
     id: issue.key,
   });
+
+  const pointerStart = { x: 0, y: 0 };
 
   const style = transform
     ? { transform: `translate(${transform.x}px, ${transform.y}px)` }
@@ -24,22 +50,28 @@ export default function KanbanCard({ issue, isDragging, isTransitioning, onSelec
       style={style}
       {...listeners}
       {...attributes}
-      className={`bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-3 cursor-grab active:cursor-grabbing transition-shadow ${
-        isDragging ? 'shadow-lg opacity-90 rotate-2' : 'shadow-sm hover:shadow-md'
+      onPointerDown={(e) => {
+        pointerStart.x = e.clientX;
+        pointerStart.y = e.clientY;
+        listeners?.onPointerDown?.(e as never);
+      }}
+      onClick={(e) => {
+        // Only open detail if user didn't drag (moved less than 5px)
+        const dx = e.clientX - pointerStart.x;
+        const dy = e.clientY - pointerStart.y;
+        if (Math.abs(dx) < 5 && Math.abs(dy) < 5) {
+          onSelectIssue(issue.key);
+        }
+      }}
+      className={`bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 border-l-[3px] ${theme.border} p-3 cursor-pointer active:cursor-grabbing transition-shadow ${
+        isDragging ? 'shadow-lg opacity-90 rotate-2 cursor-grabbing' : 'shadow-sm hover:shadow-md'
       } ${isTransitioning ? 'opacity-50 pointer-events-none' : ''}`}
     >
       {/* Top row: key + priority */}
       <div className="flex items-center justify-between mb-1.5">
-        <button
-          onClick={(e) => {
-            e.stopPropagation();
-            onSelectIssue(issue.key);
-          }}
-          onPointerDown={(e) => e.stopPropagation()}
-          className="font-mono text-xs text-blue-600 dark:text-blue-400 font-medium hover:underline"
-        >
+        <span className="font-mono text-xs text-blue-600 dark:text-blue-400 font-medium">
           {issue.key}
-        </button>
+        </span>
         <div className="flex items-center gap-1.5">
           {issue.fields.priority?.iconUrl && (
             <img src={issue.fields.priority.iconUrl} alt={issue.fields.priority.name} className="w-3.5 h-3.5" title={issue.fields.priority.name} />
@@ -62,7 +94,9 @@ export default function KanbanCard({ issue, isDragging, isTransitioning, onSelec
             name={issue.fields.status.name}
             colorName={issue.fields.status.statusCategory?.colorName || 'blue-gray'}
           />
-          <span className="text-xs text-gray-400">{issue.fields.project?.key}</span>
+          <span className={`text-[10px] font-medium px-1.5 py-0.5 rounded ${theme.badge}`}>
+            {issue.fields.project?.key}
+          </span>
         </div>
         {issue.fields.assignee?.avatarUrls?.['16x16'] ? (
           <img

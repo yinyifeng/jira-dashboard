@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import { fetchIssues, fetchBoards, checkAuth, logout, type JiraIssue } from './api';
+import { fetchIssues, checkAuth, logout, type JiraIssue } from './api';
 import IssueTable from './components/IssueTable';
 import IssueDetailPanel from './components/IssueDetailPanel';
 import KanbanBoard from './components/KanbanBoard';
@@ -21,7 +21,7 @@ export default function App() {
   const [error, setError] = useState('');
   const [jql, setJql] = useState(PRESETS[0].jql);
   const [jqlInput, setJqlInput] = useState(PRESETS[0].jql);
-  const [boards, setBoards] = useState<{ id: string; name: string; key?: string }[]>([]);
+  const [boards, setBoards] = useState<{ key: string; name: string }[]>([]);
   const [selectedBoard, setSelectedBoard] = useState('');
   const [nextPageToken, setNextPageToken] = useState<string | undefined>();
   const [pageTokenHistory, setPageTokenHistory] = useState<(string | undefined)[]>([]);
@@ -49,9 +49,24 @@ export default function App() {
     checkAuth().then(setAuthed);
   }, []);
 
+  // Derive boards from fetched issues — only update when not filtering by a specific board
+  const issuesKey = issues.map(i => i.fields.project?.key).join(',');
   useEffect(() => {
-    if (authed) fetchBoards().then(setBoards).catch(() => {});
-  }, [authed]);
+    if (selectedBoard) return;
+    const projectMap = new Map<string, string>();
+    for (const issue of issues) {
+      const p = issue.fields.project;
+      if (p?.key && !projectMap.has(p.key)) {
+        projectMap.set(p.key, p.name);
+      }
+    }
+    setBoards(
+      Array.from(projectMap.entries())
+        .map(([key, name]) => ({ key, name }))
+        .sort((a, b) => a.name.localeCompare(b.name))
+    );
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [issuesKey, selectedBoard]);
 
   useEffect(() => {
     if (!authed) return;
@@ -177,11 +192,10 @@ export default function App() {
               onChange={(e) => handleBoardFilter(e.target.value)}
               className="text-sm border border-gray-300 dark:border-gray-600 rounded-lg px-3 py-1.5 bg-white dark:bg-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500"
             >
-              <option value="">All boards {boards.length === 0 ? '(loading...)' : ''}</option>
+              <option value="">All projects</option>
               {boards.map((b) => (
-                <option key={b.id} value={b.key || b.name}>{b.name}</option>
+                <option key={b.key} value={b.key}>{b.name} ({b.key})</option>
               ))}
-              {boards.length === 0 && <option disabled>No boards available</option>}
             </select>
             <div className="h-4 w-px bg-gray-300 dark:bg-gray-700" />
             {PRESETS.map((p) => (
