@@ -475,7 +475,21 @@ export default function IssueDetailPanel({ issueKey, onClose, onUpdated, onSelec
     if (query.length < 2) { setLinkSearchResults([]); return; }
     setLinkSearching(true);
     try {
-      const jql = `key = "${query}" OR summary ~ "${query}" ORDER BY updated DESC`;
+      const trimmed = query.trim().toUpperCase();
+      // Try multiple strategies: project key, issue key prefix, and text search
+      const clauses: string[] = [];
+      // If it looks like a project key (all letters), include project match
+      if (/^[A-Z]+$/.test(trimmed)) {
+        clauses.push(`project = "${trimmed}"`);
+      }
+      // If it looks like a partial issue key (e.g. WDD-1), search that project with key sorting
+      if (/^[A-Z]+-\d*$/.test(trimmed)) {
+        const [proj] = trimmed.split('-');
+        clauses.push(`project = "${proj}"`);
+      }
+      // Always include text search as fallback
+      clauses.push(`text ~ "${query.trim()}*"`);
+      const jql = `(${clauses.join(' OR ')}) ORDER BY updated DESC`;
       const data = await fetchIssues(jql, undefined, 8);
       setLinkSearchResults(data.issues.filter(i => i.key !== issueKey));
     } catch {
@@ -766,7 +780,7 @@ export default function IssueDetailPanel({ issueKey, onClose, onUpdated, onSelec
                             setSelectedLinkType(type);
                             setLinkDirection(dir as 'outward' | 'inward');
                           }}
-                          className="text-xs border border-gray-300 dark:border-gray-600 rounded px-2 py-1.5 bg-white dark:bg-gray-800 flex-1"
+                          className="text-xs border border-gray-300 dark:border-gray-600 rounded px-2 py-1.5 bg-white dark:bg-gray-800"
                         >
                           {linkTypes.map((lt) => (
                             <optgroup key={lt.id} label={lt.name}>
@@ -775,15 +789,15 @@ export default function IssueDetailPanel({ issueKey, onClose, onUpdated, onSelec
                             </optgroup>
                           ))}
                         </select>
+                        <input
+                          type="text"
+                          value={linkSearchQuery}
+                          onChange={(e) => handleSearchLinkedIssue(e.target.value)}
+                          placeholder="Search issue key or summary..."
+                          autoFocus
+                          className="flex-1 text-xs border border-gray-300 dark:border-gray-600 rounded px-2.5 py-1.5 bg-white dark:bg-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                        />
                       </div>
-                      <input
-                        type="text"
-                        value={linkSearchQuery}
-                        onChange={(e) => handleSearchLinkedIssue(e.target.value)}
-                        placeholder="Search issue key or summary..."
-                        autoFocus
-                        className="w-full text-xs border border-gray-300 dark:border-gray-600 rounded px-2.5 py-1.5 bg-white dark:bg-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                      />
                       {linkSearching && <div className="text-xs text-gray-400 animate-pulse">Searching...</div>}
                       {linkSearchResults.length > 0 && (
                         <div className="max-h-40 overflow-y-auto border border-gray-200 dark:border-gray-700 rounded bg-white dark:bg-gray-800">
