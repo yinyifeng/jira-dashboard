@@ -1,73 +1,87 @@
-# React + TypeScript + Vite
+# Jira Dashboard
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+A custom Jira dashboard for tracking team issues, built with React + TypeScript + Tailwind CSS. Deployed at [jira.yinyi.dev](https://jira.yinyi.dev).
 
-Currently, two official plugins are available:
+## Features
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
+- **Kanban Board** — Dynamic columns based on actual issue statuses, with drag-and-drop to transition issues (optimistic updates)
+- **Table View** — Sortable issue list with pagination
+- **Team Filtering** — Avatar-based member filtering with shared team configs
+- **Filters** — Project, status, priority, type dropdowns + preset queries
+- **Column Controls** — Show/hide columns, per-column date filters
+- **Issue Detail Modal** — View and edit all issue fields inline:
+  - Summary, description, status, priority, assignee, labels, type
+  - Time tracking (estimated, logged, remaining)
+  - Start date, due date
+  - Child work items with progress bar
+  - Linked issues (view, create, delete)
+  - Activity tabs: All, Comments, History, Work log
+- **Due Dates** — Displayed on Kanban cards with overdue/due-soon color indicators
+- **Settings** — Manage custom teams (create, rename, add/remove Jira users)
 
-## React Compiler
+## Tech Stack
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+- **Frontend:** React 19, TypeScript, Tailwind CSS 4, Vite, dnd-kit
+- **Backend:** Express.js proxy server (authenticates with Jira Cloud REST API v3)
+- **Secrets:** Managed via [Doppler](https://www.doppler.com/) — no `.env` files
 
-## Expanding the ESLint configuration
+## Getting Started
 
-If you are developing a production application, we recommend updating the configuration to enable type-aware lint rules:
+### Prerequisites
 
-```js
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
+- Node.js 18+
+- [Doppler CLI](https://docs.doppler.com/docs/install-cli) configured with project secrets
 
-      // Remove tseslint.configs.recommended and replace with this
-      tseslint.configs.recommendedTypeChecked,
-      // Alternatively, use this for stricter rules
-      tseslint.configs.strictTypeChecked,
-      // Optionally, add this for stylistic rules
-      tseslint.configs.stylisticTypeChecked,
+### Required Secrets (via Doppler)
 
-      // Other configs...
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
+| Variable | Description |
+|---|---|
+| `JIRA_BASE_URL` | Jira Cloud instance URL (e.g. `https://yourorg.atlassian.net`) |
+| `JIRA_EMAIL` | Jira account email |
+| `JIRA_API_TOKEN` | Jira API token |
+| `DASHBOARD_USER` | Dashboard login username |
+| `DASHBOARD_PASS` | Dashboard login password |
+
+### Development
+
+```bash
+# Install dependencies
+npm install
+
+# Start backend proxy server (port 3001)
+npm run server
+
+# Start frontend dev server (port 5173)
+npm run dev
 ```
 
-You can also install [eslint-plugin-react-x](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-x) and [eslint-plugin-react-dom](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-dom) for React-specific lint rules:
+Or run both together:
 
-```js
-// eslint.config.js
-import reactX from 'eslint-plugin-react-x'
-import reactDom from 'eslint-plugin-react-dom'
+```bash
+npm start
+```
 
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-      // Enable lint rules for React
-      reactX.configs['recommended-typescript'],
-      // Enable lint rules for React DOM
-      reactDom.configs.recommended,
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
+### Build
+
+```bash
+npm run build
+```
+
+## Project Structure
+
+```
+├── server.js                  # Express proxy server (Jira API + auth + teams)
+├── src/
+│   ├── App.tsx                # Main app (filters, layout, routing)
+│   ├── api.ts                 # Frontend API client
+│   └── components/
+│       ├── KanbanBoard.tsx    # Kanban board with dynamic columns
+│       ├── KanbanColumn.tsx   # Droppable column
+│       ├── KanbanCard.tsx     # Draggable issue card
+│       ├── IssueTable.tsx     # Table view
+│       ├── IssueDetailPanel.tsx # Issue detail modal
+│       ├── StatusBadge.tsx    # Status badge component
+│       └── SettingsPanel.tsx  # Team management settings
+├── teams.json                 # Shared team configs (server-managed)
+└── CLAUDE.md                  # Project rules for Claude Code
 ```
