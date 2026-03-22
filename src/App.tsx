@@ -1,8 +1,9 @@
 import { useState, useEffect, useCallback } from 'react';
-import { fetchIssues, fetchBoards, type JiraIssue } from './api';
+import { fetchIssues, fetchBoards, checkAuth, logout, type JiraIssue } from './api';
 import IssueTable from './components/IssueTable';
 import IssueDetailPanel from './components/IssueDetailPanel';
 import KanbanBoard from './components/KanbanBoard';
+import LoginPage from './components/LoginPage';
 
 type ViewMode = 'table' | 'kanban';
 
@@ -14,6 +15,7 @@ const PRESETS: { label: string; jql: string }[] = [
 ];
 
 export default function App() {
+  const [authed, setAuthed] = useState<boolean | null>(null); // null = checking
   const [issues, setIssues] = useState<JiraIssue[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
@@ -44,21 +46,19 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    fetchBoards()
-      .then(boards => {
-        console.log('Boards fetched:', boards);
-        setBoards(boards);
-      })
-      .catch(err => {
-        console.error('Failed to fetch boards:', err);
-      });
+    checkAuth().then(setAuthed);
   }, []);
 
   useEffect(() => {
+    if (authed) fetchBoards().then(setBoards).catch(() => {});
+  }, [authed]);
+
+  useEffect(() => {
+    if (!authed) return;
     setPageTokenHistory([]);
     setNextPageToken(undefined);
     loadIssues(jql);
-  }, [jql, loadIssues]);
+  }, [jql, loadIssues, authed]);
 
   const handleSearch = (e: React.FormEvent) => {
     e.preventDefault();
@@ -97,6 +97,23 @@ export default function App() {
   };
 
   const currentPage = pageTokenHistory.length;
+
+  if (authed === null) {
+    return (
+      <div className="min-h-screen bg-gray-50 dark:bg-gray-950 flex items-center justify-center">
+        <div className="animate-spin w-6 h-6 border-2 border-gray-300 border-t-blue-500 rounded-full" />
+      </div>
+    );
+  }
+
+  if (!authed) {
+    return <LoginPage onLoggedIn={() => setAuthed(true)} />;
+  }
+
+  const handleLogout = async () => {
+    await logout();
+    setAuthed(false);
+  };
 
   return (
     <div className="min-h-screen bg-gray-50 dark:bg-gray-950 text-gray-900 dark:text-gray-100">
@@ -139,6 +156,12 @@ export default function App() {
               className="text-sm px-3 py-1.5 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 transition-colors"
             >
               {loading ? 'Loading...' : 'Refresh'}
+            </button>
+            <button
+              onClick={handleLogout}
+              className="text-sm px-3 py-1.5 border border-gray-300 dark:border-gray-600 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"
+            >
+              Logout
             </button>
           </div>
         </div>

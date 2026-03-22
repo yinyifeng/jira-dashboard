@@ -1,5 +1,6 @@
 import express from 'express';
 import cors from 'cors';
+import crypto from 'crypto';
 
 // Secrets are injected by Doppler via `doppler run` — no .env needed.
 // Run: doppler run -- node server.js
@@ -7,19 +8,81 @@ import cors from 'cors';
 const app = express();
 app.use(cors({
   origin: process.env.CORS_ORIGIN ? process.env.CORS_ORIGIN.split(',') : true,
+  credentials: true,
 }));
 app.use(express.json());
 
-const { JIRA_BASE_URL, JIRA_EMAIL, JIRA_API_TOKEN } = process.env;
+const { JIRA_BASE_URL, JIRA_EMAIL, JIRA_API_TOKEN, DASHBOARD_USER, DASHBOARD_PASS } = process.env;
 
 if (!JIRA_BASE_URL || !JIRA_EMAIL || !JIRA_API_TOKEN) {
   console.error('Missing required env vars: JIRA_BASE_URL, JIRA_EMAIL, JIRA_API_TOKEN');
   console.error('Run with: doppler run -- node server.js');
-  console.error('Or set secrets in Doppler: doppler secrets set JIRA_BASE_URL JIRA_EMAIL JIRA_API_TOKEN');
+  process.exit(1);
+}
+
+if (!DASHBOARD_USER || !DASHBOARD_PASS) {
+  console.error('Missing required env vars: DASHBOARD_USER, DASHBOARD_PASS');
+  console.error('Set login credentials: doppler secrets set DASHBOARD_USER DASHBOARD_PASS');
   process.exit(1);
 }
 
 const authHeader = 'Basic ' + Buffer.from(`${JIRA_EMAIL}:${JIRA_API_TOKEN}`).toString('base64');
+
+// --- Session auth ---
+const sessions = new Map(); // token -> { expiresAt }
+const SESSION_TTL = 7 * 24 * 60 * 60 * 1000; // 7 days
+
+app.post('/api/auth/login', (req, res) => {
+  const { username, password } = req.body;
+  if (!username || !password) {
+    return res.status(400).json({ error: 'Username and password required' });
+  }
+  // Constant-time comparison to prevent timing attacks
+  const userMatch = crypto.timingSafeEqual(
+    Buffer.from(username.padEnd(256)),
+    Buffer.from(DASHBOARD_USER.padEnd(256)),
+  );
+  const passMatch = crypto.timingSafeEqual(
+    Buffer.from(password.padEnd(256)),
+    Buffer.from(DASHBOARD_PASS.padEnd(256)),
+  );
+  if (!userMatch || !passMatch) {
+    return res.status(401).json({ error: 'Invalid credentials' });
+  }
+  const token = crypto.randomBytes(32).toString('hex');
+  sessions.set(token, { expiresAt: Date.now() + SESSION_TTL });
+  res.json({ token, expiresIn: SESSION_TTL });
+});
+
+app.post('/api/auth/logout', (req, res) => {
+  const token = req.headers.authorization?.replace('Bearer ', '');
+  if (token) sessions.delete(token);
+  res.json({ success: true });
+});
+
+app.get('/api/auth/check', (req, res) => {
+  const token = req.headers.authorization?.replace('Bearer ', '');
+  if (!token) return res.status(401).json({ error: 'No token' });
+  const session = sessions.get(token);
+  if (!session || session.expiresAt < Date.now()) {
+    sessions.delete(token);
+    return res.status(401).json({ error: 'Session expired' });
+  }
+  res.json({ valid: true });
+});
+
+// Auth middleware — protect all /api routes except /api/auth/*
+app.use('/api', (req, res, next) => {
+  if (req.path.startsWith('/auth/')) return next();
+  const token = req.headers.authorization?.replace('Bearer ', '');
+  if (!token) return res.status(401).json({ error: 'Authentication required' });
+  const session = sessions.get(token);
+  if (!session || session.expiresAt < Date.now()) {
+    sessions.delete(token);
+    return res.status(401).json({ error: 'Session expired' });
+  }
+  next();
+});
 
 async function jiraFetch(path, options = {}) {
   const url = `${JIRA_BASE_URL}/rest/api/3${path}`;

@@ -1,5 +1,72 @@
 const API_BASE = import.meta.env.VITE_API_URL || '';
 
+// --- Auth helpers ---
+const TOKEN_KEY = 'jira_dash_token';
+
+export function getToken(): string | null {
+  return localStorage.getItem(TOKEN_KEY);
+}
+
+export function setToken(token: string) {
+  localStorage.setItem(TOKEN_KEY, token);
+}
+
+export function clearToken() {
+  localStorage.removeItem(TOKEN_KEY);
+}
+
+function authHeaders(): Record<string, string> {
+  const token = getToken();
+  return token ? { Authorization: `Bearer ${token}` } : {};
+}
+
+async function authFetch(url: string, options: RequestInit = {}): Promise<Response> {
+  const res = await fetch(url, {
+    ...options,
+    headers: { ...authHeaders(), ...options.headers },
+  });
+  if (res.status === 401) {
+    clearToken();
+    window.location.reload();
+  }
+  return res;
+}
+
+export async function login(username: string, password: string): Promise<void> {
+  const res = await fetch(`${API_BASE}/api/auth/login`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ username, password }),
+  });
+  if (!res.ok) {
+    const data = await res.json();
+    throw new Error(data.error || 'Login failed');
+  }
+  const { token } = await res.json();
+  setToken(token);
+}
+
+export async function logout(): Promise<void> {
+  await fetch(`${API_BASE}/api/auth/logout`, {
+    method: 'POST',
+    headers: authHeaders(),
+  }).catch(() => {});
+  clearToken();
+}
+
+export async function checkAuth(): Promise<boolean> {
+  const token = getToken();
+  if (!token) return false;
+  try {
+    const res = await fetch(`${API_BASE}/api/auth/check`, {
+      headers: authHeaders(),
+    });
+    return res.ok;
+  } catch {
+    return false;
+  }
+}
+
 export interface JiraIssue {
   id: string;
   key: string;
@@ -33,13 +100,13 @@ export async function fetchIssues(jql?: string, nextPageToken?: string, maxResul
   const params = new URLSearchParams({ maxResults: String(maxResults) });
   if (jql) params.set('jql', jql);
   if (nextPageToken) params.set('nextPageToken', nextPageToken);
-  const res = await fetch(`${API_BASE}/api/issues?${params}`);
+  const res = await authFetch(`${API_BASE}/api/issues?${params}`);
   if (!res.ok) throw new Error((await res.json()).error || 'Failed to fetch issues');
   return res.json();
 }
 
 export async function updateIssue(key: string, fields: Record<string, unknown>): Promise<void> {
-  const res = await fetch(`${API_BASE}/api/issues/${key}`, {
+  const res = await authFetch(`${API_BASE}/api/issues/${key}`, {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ fields }),
@@ -51,14 +118,14 @@ export async function updateIssue(key: string, fields: Record<string, unknown>):
 }
 
 export async function fetchTransitions(key: string): Promise<Transition[]> {
-  const res = await fetch(`${API_BASE}/api/issues/${key}/transitions`);
+  const res = await authFetch(`${API_BASE}/api/issues/${key}/transitions`);
   if (!res.ok) throw new Error('Failed to fetch transitions');
   const data = await res.json();
   return data.transitions;
 }
 
 export async function transitionIssue(key: string, transitionId: string): Promise<void> {
-  const res = await fetch(`${API_BASE}/api/issues/${key}/transitions`, {
+  const res = await authFetch(`${API_BASE}/api/issues/${key}/transitions`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ transitionId }),
@@ -67,19 +134,19 @@ export async function transitionIssue(key: string, transitionId: string): Promis
 }
 
 export async function fetchPriorities(): Promise<{ name: string; iconUrl: string; id: string }[]> {
-  const res = await fetch('/api/priorities');
+  const res = await authFetch(`${API_BASE}/api/priorities`);
   if (!res.ok) throw new Error('Failed to fetch priorities');
   return res.json();
 }
 
 export async function searchUsers(query: string): Promise<{ accountId: string; displayName: string }[]> {
-  const res = await fetch(`${API_BASE}/api/users?query=${encodeURIComponent(query)}`);
+  const res = await authFetch(`${API_BASE}/api/users?query=${encodeURIComponent(query)}`);
   if (!res.ok) throw new Error('Failed to search users');
   return res.json();
 }
 
 export async function fetchBoards(): Promise<{ id: string; name: string; key?: string; type?: string }[]> {
-  const res = await fetch('/api/boards');
+  const res = await authFetch(`${API_BASE}/api/boards`);
   if (!res.ok) throw new Error('Failed to fetch boards');
   const data = await res.json();
   return data.boards;
@@ -94,13 +161,13 @@ export interface JiraComment {
 }
 
 export async function fetchIssueDetail(key: string): Promise<JiraIssue> {
-  const res = await fetch(`${API_BASE}/api/issues/${key}`);
+  const res = await authFetch(`${API_BASE}/api/issues/${key}`);
   if (!res.ok) throw new Error('Failed to fetch issue');
   return res.json();
 }
 
 export async function fetchComments(key: string): Promise<JiraComment[]> {
-  const res = await fetch(`${API_BASE}/api/issues/${key}/comments`);
+  const res = await authFetch(`${API_BASE}/api/issues/${key}/comments`);
   if (!res.ok) throw new Error('Failed to fetch comments');
   const data = await res.json();
   return data.comments || [];
@@ -112,7 +179,7 @@ export async function addComment(key: string, bodyText: string): Promise<JiraCom
     version: 1,
     content: [{ type: 'paragraph', content: [{ type: 'text', text: bodyText }] }],
   };
-  const res = await fetch(`${API_BASE}/api/issues/${key}/comments`, {
+  const res = await authFetch(`${API_BASE}/api/issues/${key}/comments`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ body }),
@@ -127,7 +194,7 @@ export async function editComment(issueKey: string, commentId: string, bodyText:
     version: 1,
     content: [{ type: 'paragraph', content: [{ type: 'text', text: bodyText }] }],
   };
-  const res = await fetch(`${API_BASE}/api/issues/${issueKey}/comments/${commentId}`, {
+  const res = await authFetch(`${API_BASE}/api/issues/${issueKey}/comments/${commentId}`, {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ body }),
@@ -137,6 +204,6 @@ export async function editComment(issueKey: string, commentId: string, bodyText:
 }
 
 export async function deleteComment(issueKey: string, commentId: string): Promise<void> {
-  const res = await fetch(`${API_BASE}/api/issues/${issueKey}/comments/${commentId}`, { method: 'DELETE' });
+  const res = await authFetch(`${API_BASE}/api/issues/${issueKey}/comments/${commentId}`, { method: 'DELETE' });
   if (!res.ok) throw new Error('Failed to delete comment');
 }
