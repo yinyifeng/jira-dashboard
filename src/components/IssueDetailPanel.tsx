@@ -68,7 +68,7 @@ function adfToPlainText(doc: unknown): string {
 
 // --- ADF to HTML (for rich display) ---
 function escHtml(s: string): string {
-  return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
 }
 
 function adfInlineToHtml(node: unknown): string {
@@ -187,6 +187,23 @@ function collectAdfMediaRefs(node: unknown): Set<string> {
   return refs;
 }
 
+// Extract pasted files from clipboard event
+function extractPastedFiles(e: React.ClipboardEvent): File[] {
+  const items = e.clipboardData?.items;
+  if (!items) return [];
+  const files: File[] = [];
+  for (const item of items) {
+    if (item.kind === 'file') {
+      const file = item.getAsFile();
+      if (file) {
+        const ext = file.type.split('/')[1] || 'png';
+        files.push(new File([file], `pasted-image-${Date.now()}.${ext}`, { type: file.type }));
+      }
+    }
+  }
+  return files;
+}
+
 // Find attachments created within a time window of a given timestamp (for associating with comments)
 function findAttachmentsByTime(
   allAtts: AttachmentInfo[],
@@ -247,14 +264,17 @@ export default function IssueDetailPanel({ issueKey, onClose, onUpdated, onSelec
     return result;
   }, [issue, comments]);
 
+  // Explicitly tracked comment attachment IDs (survives across refreshes within session)
+  const [commentAttIds, setCommentAttIds] = useState<Set<string>>(new Set());
+
   // Set of attachment IDs associated with comments (to exclude from description)
   const commentAttachmentIds = useMemo(() => {
-    const ids = new Set<string>();
+    const ids = new Set(commentAttIds);
     for (const atts of commentAttachments.values()) {
       for (const att of atts) ids.add(att.id);
     }
     return ids;
-  }, [commentAttachments]);
+  }, [commentAttachments, commentAttIds]);
 
   // Description editing
   const [editingDesc, setEditingDesc] = useState(false);
@@ -343,7 +363,7 @@ export default function IssueDetailPanel({ issueKey, onClose, onUpdated, onSelec
     }
   };
 
-  useEffect(() => { load(); }, [issueKey]);
+  useEffect(() => { load(); setCommentAttIds(new Set()); }, [issueKey]);
 
   const handleSaveDescription = async () => {
     setSavingDesc(true);
@@ -378,16 +398,21 @@ export default function IssueDetailPanel({ issueKey, onClose, onUpdated, onSelec
     setAddingComment(true);
     try {
       if (pendingFiles.length > 0) {
-        await uploadAttachments(issueKey, pendingFiles);
+        const uploaded = await uploadAttachments(issueKey, pendingFiles);
+        // Track these attachment IDs as comment-associated
+        setCommentAttIds(prev => {
+          const next = new Set(prev);
+          for (const att of uploaded) next.add(att.id);
+          return next;
+        });
         setPendingFiles([]);
       }
       if (newComment.trim()) {
         await addComment(issueKey, newComment);
         setNewComment('');
       }
-      const updated = await fetchComments(issueKey);
+      const [updated, refreshed] = await Promise.all([fetchComments(issueKey), fetchIssueDetail(issueKey)]);
       setComments(updated);
-      const refreshed = await fetchIssueDetail(issueKey);
       setIssue(refreshed);
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Failed to add comment');
@@ -828,23 +853,8 @@ export default function IssueDetailPanel({ issueKey, onClose, onUpdated, onSelec
                         value={descDraft}
                         onChange={(e) => setDescDraft(e.target.value)}
                         onPaste={(e) => {
-                          const items = e.clipboardData?.items;
-                          if (!items) return;
-                          const files: File[] = [];
-                          for (const item of items) {
-                            if (item.kind === 'file') {
-                              const file = item.getAsFile();
-                              if (file) {
-                                const ext = file.type.split('/')[1] || 'png';
-                                const named = new File([file], `pasted-image-${Date.now()}.${ext}`, { type: file.type });
-                                files.push(named);
-                              }
-                            }
-                          }
-                          if (files.length > 0) {
-                            e.preventDefault();
-                            setDescFiles(prev => [...prev, ...files]);
-                          }
+                          const files = extractPastedFiles(e);
+                          if (files.length > 0) { e.preventDefault(); setDescFiles(prev => [...prev, ...files]); }
                         }}
                         rows={8}
                         autoFocus
@@ -1203,24 +1213,8 @@ export default function IssueDetailPanel({ issueKey, onClose, onUpdated, onSelec
                           value={newComment}
                           onChange={(e) => setNewComment(e.target.value)}
                           onPaste={(e) => {
-                            const items = e.clipboardData?.items;
-                            if (!items) return;
-                            const files: File[] = [];
-                            for (const item of items) {
-                              if (item.kind === 'file') {
-                                const file = item.getAsFile();
-                                if (file) {
-                                  // Give pasted images a meaningful name
-                                  const ext = file.type.split('/')[1] || 'png';
-                                  const named = new File([file], `pasted-image-${Date.now()}.${ext}`, { type: file.type });
-                                  files.push(named);
-                                }
-                              }
-                            }
-                            if (files.length > 0) {
-                              e.preventDefault();
-                              setPendingFiles(prev => [...prev, ...files]);
-                            }
+                            const files = extractPastedFiles(e);
+                            if (files.length > 0) { e.preventDefault(); setPendingFiles(prev => [...prev, ...files]); }
                           }}
                           placeholder="Add a comment... (paste images here)"
                           rows={2}

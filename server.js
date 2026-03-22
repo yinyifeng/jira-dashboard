@@ -591,8 +591,8 @@ app.get('/api/attachments/:id/content', async (req, res) => {
     }
     const contentType = jiraRes.headers.get('content-type');
     if (contentType) res.setHeader('Content-Type', contentType);
-    const buffer = await jiraRes.arrayBuffer();
-    res.send(Buffer.from(buffer));
+    const { Readable } = await import('stream');
+    Readable.fromWeb(jiraRes.body).pipe(res);
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
