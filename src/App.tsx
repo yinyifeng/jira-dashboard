@@ -5,8 +5,9 @@ import IssueDetailPanel from './components/IssueDetailPanel';
 import KanbanBoard from './components/KanbanBoard';
 import LoginPage from './components/LoginPage';
 import SettingsPanel from './components/SettingsPanel';
+import DashboardView from './components/DashboardView';
 
-type ViewMode = 'table' | 'kanban';
+type ViewMode = 'dashboard' | 'table' | 'kanban';
 
 const PRESETS: { label: string; jql: string }[] = [
   { label: 'My Open Issues', jql: 'assignee = currentUser() AND resolution = Unresolved ORDER BY priority DESC' },
@@ -26,7 +27,7 @@ export default function App() {
   const [pageTokenHistory, setPageTokenHistory] = useState<(string | undefined)[]>([]);
   const [isLast, setIsLast] = useState(true);
   const [selectedIssueKey, setSelectedIssueKey] = useState<string | null>(null);
-  const [viewMode, setViewMode] = useState<ViewMode>('table');
+  const [viewMode, setViewMode] = useState<ViewMode>('dashboard');
   const [showSettings, setShowSettings] = useState(false);
   const [teams, setTeams] = useState<TeamConfig[]>([]);
   const [selectedMembers, setSelectedMembers] = useState<Set<string>>(new Set());
@@ -294,26 +295,19 @@ export default function App() {
           <div className="flex items-center gap-2">
             {/* View toggle */}
             <div className="flex border border-gray-300 dark:border-gray-600 rounded-lg overflow-hidden">
-              <button
-                onClick={() => setViewMode('table')}
-                className={`px-2.5 py-1.5 text-xs font-medium transition-colors ${
-                  viewMode === 'table'
-                    ? 'bg-gray-900 dark:bg-gray-100 text-white dark:text-gray-900'
-                    : 'hover:bg-gray-100 dark:hover:bg-gray-800'
-                }`}
-              >
-                Table
-              </button>
-              <button
-                onClick={() => setViewMode('kanban')}
-                className={`px-2.5 py-1.5 text-xs font-medium transition-colors ${
-                  viewMode === 'kanban'
-                    ? 'bg-gray-900 dark:bg-gray-100 text-white dark:text-gray-900'
-                    : 'hover:bg-gray-100 dark:hover:bg-gray-800'
-                }`}
-              >
-                Board
-              </button>
+              {(['dashboard', 'table', 'kanban'] as const).map((mode) => (
+                <button
+                  key={mode}
+                  onClick={() => setViewMode(mode)}
+                  className={`px-2.5 py-1.5 text-xs font-medium transition-colors ${
+                    viewMode === mode
+                      ? 'bg-gray-900 dark:bg-gray-100 text-white dark:text-gray-900'
+                      : 'hover:bg-gray-100 dark:hover:bg-gray-800'
+                  }`}
+                >
+                  {mode === 'dashboard' ? 'Dashboard' : mode === 'table' ? 'Table' : 'Board'}
+                </button>
+              ))}
             </div>
             <button
               onClick={() => loadIssues(jql)}
@@ -472,6 +466,8 @@ export default function App() {
             <div className="animate-spin inline-block w-6 h-6 border-2 border-gray-300 border-t-blue-500 rounded-full mb-3" />
             <p>Loading issues...</p>
           </div>
+        ) : viewMode === 'dashboard' ? (
+          <DashboardView issues={issues} onSelectIssue={setSelectedIssueKey} />
         ) : viewMode === 'kanban' ? (
           <KanbanBoard issues={issues} onRefresh={() => loadIssues(jql)} onSelectIssue={setSelectedIssueKey} />
         ) : (
