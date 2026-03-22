@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import {
   DndContext,
   DragOverlay,
@@ -10,7 +10,7 @@ import {
   type DragEndEvent,
   closestCenter,
 } from '@dnd-kit/core';
-import { type JiraIssue, fetchTransitions, transitionIssue } from '../api';
+import { type JiraIssue, fetchTransitions, transitionIssue, fetchProjectStatuses } from '../api';
 import KanbanColumn from './KanbanColumn';
 import KanbanCard from './KanbanCard';
 
@@ -18,6 +18,7 @@ interface KanbanBoardProps {
   issues: JiraIssue[];
   onRefresh: () => void;
   onSelectIssue: (key: string) => void;
+  selectedBoard?: string;
 }
 
 // Category ordering for column sorting
@@ -70,10 +71,23 @@ function getIssueDateForColumn(issue: JiraIssue, category: string): Date {
   return new Date(issue.fields.updated);
 }
 
-export default function KanbanBoard({ issues, onRefresh, onSelectIssue }: KanbanBoardProps) {
+export default function KanbanBoard({ issues, onRefresh, onSelectIssue, selectedBoard }: KanbanBoardProps) {
   const [activeIssue, setActiveIssue] = useState<JiraIssue | null>(null);
   const transitioning = null; // Optimistic moves handle visual feedback now
   const [hiddenColumns, setHiddenColumns] = useState<Set<string>>(new Set());
+  const [projectStatuses, setProjectStatuses] = useState<{ name: string; statusCategory: { name: string } }[]>([]);
+
+  // Fetch project-specific statuses when a board is selected
+  useEffect(() => {
+    setHiddenColumns(new Set());
+    if (!selectedBoard) {
+      setProjectStatuses([]);
+      return;
+    }
+    fetchProjectStatuses(selectedBoard)
+      .then(setProjectStatuses)
+      .catch(() => setProjectStatuses([]));
+  }, [selectedBoard]);
   const [columnDateFilters, setColumnDateFilters] = useState<Record<string, string>>({});
   const [showColumnSettings, setShowColumnSettings] = useState(false);
   // Optimistic status overrides: issueKey -> { statusName, category }
@@ -127,9 +141,20 @@ export default function KanbanBoard({ issues, onRefresh, onSelectIssue }: Kanban
     useSensor(TouchSensor, { activationConstraint: { delay: 200, tolerance: 5 } }),
   );
 
-  // Build columns dynamically from actual statuses in the issues
+  // Build columns: use project statuses when a board is selected, otherwise dynamic from issues
   const allColumns = useMemo(() => {
     const statusMap = new Map<string, { category: string; issues: JiraIssue[] }>();
+
+    // When a specific board is selected, seed columns from project statuses
+    if (selectedBoard && projectStatuses.length > 0) {
+      for (const status of projectStatuses) {
+        statusMap.set(status.name, {
+          category: status.statusCategory?.name || 'To Do',
+          issues: [],
+        });
+      }
+    }
+
     for (const issue of effectiveIssues) {
       const statusName = issue.fields.status.name;
       const categoryName = issue.fields.status.statusCategory?.name || 'To Do';
@@ -139,14 +164,23 @@ export default function KanbanBoard({ issues, onRefresh, onSelectIssue }: Kanban
       statusMap.get(statusName)!.issues.push(issue);
     }
 
-    return Array.from(statusMap.entries())
-      .map(([name, { category, issues: columnIssues }]) => ({ name, category, issues: columnIssues }))
-      .sort((a, b) => {
+    const columns = Array.from(statusMap.entries())
+      .map(([name, { category, issues: columnIssues }]) => ({ name, category, issues: columnIssues }));
+
+    // When project statuses are available, use the server's order (sorted by workflow position)
+    if (selectedBoard && projectStatuses.length > 0) {
+      const statusOrder = new Map(projectStatuses.map((s, i) => [s.name, i]));
+      columns.sort((a, b) => (statusOrder.get(a.name) ?? 999) - (statusOrder.get(b.name) ?? 999));
+    } else {
+      columns.sort((a, b) => {
         const catDiff = (CATEGORY_ORDER[a.category] ?? 1) - (CATEGORY_ORDER[b.category] ?? 1);
         if (catDiff !== 0) return catDiff;
         return a.name.localeCompare(b.name);
       });
-  }, [effectiveIssues]);
+    }
+
+    return columns;
+  }, [effectiveIssues, selectedBoard, projectStatuses]);
 
   // Apply visibility and date filters
   const visibleColumns = allColumns

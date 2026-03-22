@@ -180,6 +180,12 @@ export async function fetchStatuses(): Promise<{ id: string; name: string; statu
   return res.json();
 }
 
+export async function fetchProjectStatuses(projectKey: string): Promise<{ id: string; name: string; statusCategory: { name: string; colorName: string } }[]> {
+  const res = await authFetch(`${API_BASE}/api/projects/${encodeURIComponent(projectKey)}/statuses`);
+  if (!res.ok) throw new Error('Failed to fetch project statuses');
+  return res.json();
+}
+
 export async function fetchLabels(): Promise<string[]> {
   const res = await authFetch(`${API_BASE}/api/labels`);
   if (!res.ok) throw new Error('Failed to fetch labels');
@@ -353,4 +359,31 @@ export async function editComment(issueKey: string, commentId: string, bodyText:
 export async function deleteComment(issueKey: string, commentId: string): Promise<void> {
   const res = await authFetch(`${API_BASE}/api/issues/${issueKey}/comments/${commentId}`, { method: 'DELETE' });
   if (!res.ok) throw new Error('Failed to delete comment');
+}
+
+export interface JiraAttachment {
+  id: string;
+  filename: string;
+  mimeType: string;
+  size: number;
+  content: string;
+  thumbnail?: string;
+  created: string;
+  author: { displayName: string; avatarUrls: Record<string, string>; accountId: string };
+}
+
+export async function uploadAttachments(issueKey: string, files: File[]): Promise<JiraAttachment[]> {
+  const formData = new FormData();
+  for (const file of files) {
+    formData.append('files', file);
+  }
+  const res = await authFetch(`${API_BASE}/api/issues/${issueKey}/attachments`, {
+    method: 'POST',
+    body: formData,
+  });
+  if (!res.ok) {
+    const data = await res.json();
+    throw new Error(data.error || 'Failed to upload attachments');
+  }
+  return res.json();
 }

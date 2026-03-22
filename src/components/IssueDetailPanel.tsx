@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import {
   fetchIssueDetail,
   fetchComments,
@@ -17,6 +17,7 @@ import {
   editComment,
   deleteComment,
   updateIssue,
+  uploadAttachments,
   type JiraIssue,
   type JiraComment,
   type IssueLink,
@@ -160,6 +161,8 @@ export default function IssueDetailPanel({ issueKey, onClose, onUpdated, onSelec
   // New comment
   const [newComment, setNewComment] = useState('');
   const [addingComment, setAddingComment] = useState(false);
+  const [pendingFiles, setPendingFiles] = useState<File[]>([]);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Edit comment
   const [editingCommentId, setEditingCommentId] = useState<string | null>(null);
@@ -259,13 +262,22 @@ export default function IssueDetailPanel({ issueKey, onClose, onUpdated, onSelec
   };
 
   const handleAddComment = async () => {
-    if (!newComment.trim()) return;
+    if (!newComment.trim() && pendingFiles.length === 0) return;
     setAddingComment(true);
     try {
-      await addComment(issueKey, newComment);
-      setNewComment('');
+      if (pendingFiles.length > 0) {
+        await uploadAttachments(issueKey, pendingFiles);
+        setPendingFiles([]);
+      }
+      if (newComment.trim()) {
+        await addComment(issueKey, newComment);
+        setNewComment('');
+      }
       const updated = await fetchComments(issueKey);
       setComments(updated);
+      // Refresh issue to show new attachments
+      const refreshed = await fetchIssueDetail(issueKey);
+      setIssue(refreshed);
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Failed to add comment');
     } finally {
@@ -923,20 +935,69 @@ export default function IssueDetailPanel({ issueKey, onClose, onUpdated, onSelec
                           rows={2}
                           className="w-full border border-gray-200 dark:border-gray-700 rounded-lg px-3 py-2 text-sm bg-white dark:bg-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent resize-y"
                         />
-                        {newComment.trim() && (
-                          <div className="flex gap-2 mt-2">
-                            <button
-                              onClick={handleAddComment}
-                              disabled={addingComment}
-                              className="text-xs px-3 py-1.5 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:opacity-50"
-                            >
-                              {addingComment ? 'Saving...' : 'Save'}
-                            </button>
-                            <button onClick={() => setNewComment('')} className="text-xs px-3 py-1.5 text-gray-500 hover:text-gray-700">
-                              Cancel
-                            </button>
+                        {/* Pending file previews */}
+                        {pendingFiles.length > 0 && (
+                          <div className="flex flex-wrap gap-2 mt-2">
+                            {pendingFiles.map((file, i) => (
+                              <div key={i} className="flex items-center gap-1.5 bg-gray-100 dark:bg-gray-800 rounded-lg px-2.5 py-1.5 text-xs">
+                                <svg className="w-3.5 h-3.5 text-gray-400 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13" />
+                                </svg>
+                                <span className="truncate max-w-[150px]">{file.name}</span>
+                                <span className="text-gray-400">({(file.size / 1024).toFixed(0)}KB)</span>
+                                <button
+                                  onClick={() => setPendingFiles(prev => prev.filter((_, j) => j !== i))}
+                                  className="text-gray-400 hover:text-red-500 ml-0.5"
+                                >
+                                  <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                                  </svg>
+                                </button>
+                              </div>
+                            ))}
                           </div>
                         )}
+                        <div className="flex items-center gap-2 mt-2">
+                          <input
+                            ref={fileInputRef}
+                            type="file"
+                            multiple
+                            className="hidden"
+                            onChange={(e) => {
+                              if (e.target.files) {
+                                setPendingFiles(prev => [...prev, ...Array.from(e.target.files!)]);
+                                e.target.value = '';
+                              }
+                            }}
+                          />
+                          <button
+                            onClick={() => fileInputRef.current?.click()}
+                            className="text-xs px-2.5 py-1.5 border border-gray-200 dark:border-gray-700 rounded-md hover:bg-gray-100 dark:hover:bg-gray-800 text-gray-500 dark:text-gray-400 flex items-center gap-1.5"
+                            title="Attach files"
+                          >
+                            <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13" />
+                            </svg>
+                            Attach
+                          </button>
+                          {(newComment.trim() || pendingFiles.length > 0) && (
+                            <>
+                              <button
+                                onClick={handleAddComment}
+                                disabled={addingComment}
+                                className="text-xs px-3 py-1.5 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:opacity-50"
+                              >
+                                {addingComment ? 'Saving...' : 'Save'}
+                              </button>
+                              <button
+                                onClick={() => { setNewComment(''); setPendingFiles([]); }}
+                                className="text-xs px-3 py-1.5 text-gray-500 hover:text-gray-700"
+                              >
+                                Cancel
+                              </button>
+                            </>
+                          )}
+                        </div>
                       </div>
                     </div>
                   )}

@@ -469,7 +469,7 @@ export default function App() {
         ) : viewMode === 'dashboard' ? (
           <DashboardView issues={issues} onSelectIssue={setSelectedIssueKey} />
         ) : viewMode === 'kanban' ? (
-          <KanbanBoard issues={issues} onRefresh={() => loadIssues(jql)} onSelectIssue={setSelectedIssueKey} />
+          <KanbanBoard issues={issues} onRefresh={() => loadIssues(jql)} onSelectIssue={setSelectedIssueKey} selectedBoard={selectedBoard} />
         ) : (
           <>
             <div className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-xl shadow-sm overflow-hidden">

@@ -3,6 +3,7 @@ import cors from 'cors';
 import crypto from 'crypto';
 import fs from 'fs';
 import path from 'path';
+import multer from 'multer';
 
 // Secrets are injected by Doppler via `doppler run` — no .env needed.
 // Run: doppler run -- node server.js
@@ -370,6 +371,45 @@ app.get('/api/statuses', async (req, res) => {
   }
 });
 
+// Get statuses for a specific project
+app.get('/api/projects/:key/statuses', async (req, res) => {
+  try {
+    const data = await jiraFetch(`/project/${req.params.key}/statuses`);
+    // Flatten and dedupe statuses across issue types
+    const seen = new Set();
+    const statuses = [];
+    for (const issueType of data) {
+      for (const status of issueType.statuses) {
+        if (!seen.has(status.name)) {
+          seen.add(status.name);
+          statuses.push(status);
+        }
+      }
+    }
+    // Sort statuses in workflow-like order:
+    // Canonical "To Do"/"Backlog" -> "In Progress" -> non-canonical "To Do" (e.g. Review) -> "Done"
+    // This handles cases where Jira categorizes statuses like "Review" as "To Do"
+    // even though they logically come after "In Progress" in the workflow.
+    const getOrder = (s) => {
+      const catId = s.statusCategory?.id;
+      const name = s.name;
+      if (catId === 4) return 1; // In Progress category
+      if (catId === 3) return 3; // Done category
+      // "To Do" category (id=2): canonical names first, custom names after In Progress
+      if (['To Do', 'Backlog', 'Open', 'New'].includes(name)) return 0;
+      return 2; // Non-canonical "To Do" statuses (like Review) go after In Progress
+    };
+    statuses.sort((a, b) => {
+      const diff = getOrder(a) - getOrder(b);
+      if (diff !== 0) return diff;
+      return a.name.localeCompare(b.name);
+    });
+    res.json(statuses);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // Get issue types for a project
 app.get('/api/issuetypes', async (req, res) => {
   try {
@@ -465,6 +505,54 @@ app.get('/api/issues/:key/changelog', async (req, res) => {
 app.get('/api/issues/:key/worklog', async (req, res) => {
   try {
     const data = await jiraFetch(`/issue/${req.params.key}/worklog`);
+    res.json(data);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Upload attachments to an issue
+const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 50 * 1024 * 1024 } });
+app.post('/api/issues/:key/attachments', upload.array('files', 10), async (req, res) => {
+  try {
+    const files = req.files;
+    if (!files || files.length === 0) {
+      return res.status(400).json({ error: 'No files provided' });
+    }
+    const boundary = `----FormBoundary${crypto.randomUUID()}`;
+    const parts = [];
+    for (const file of files) {
+      parts.push(
+        `--${boundary}\r\n` +
+        `Content-Disposition: form-data; name="file"; filename="${file.originalname}"\r\n` +
+        `Content-Type: ${file.mimetype}\r\n\r\n`
+      );
+      parts.push(file.buffer);
+      parts.push('\r\n');
+    }
+    parts.push(`--${boundary}--\r\n`);
+
+    const bodyParts = [];
+    for (const part of parts) {
+      bodyParts.push(typeof part === 'string' ? Buffer.from(part) : part);
+    }
+    const body = Buffer.concat(bodyParts);
+
+    const url = `${JIRA_BASE_URL}/rest/api/3/issue/${req.params.key}/attachments`;
+    const jiraRes = await fetch(url, {
+      method: 'POST',
+      headers: {
+        Authorization: authHeader,
+        'X-Atlassian-Token': 'no-check',
+        'Content-Type': `multipart/form-data; boundary=${boundary}`,
+      },
+      body,
+    });
+    if (!jiraRes.ok) {
+      const text = await jiraRes.text();
+      return res.status(jiraRes.status).json({ error: text });
+    }
+    const data = await jiraRes.json();
     res.json(data);
   } catch (err) {
     res.status(500).json({ error: err.message });
