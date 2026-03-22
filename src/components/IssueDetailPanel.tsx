@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useMemo } from 'react';
 import {
   fetchIssueDetail,
   fetchComments,
@@ -95,7 +95,17 @@ function adfInlineToHtml(node: unknown): string {
   return '';
 }
 
-function adfBlockToHtml(block: unknown): string {
+interface AttachmentInfo {
+  id: string;
+  filename: string;
+  mimeType: string;
+  content: string;
+  thumbnail?: string;
+}
+
+type AttachmentMap = Map<string, AttachmentInfo>;
+
+function adfBlockToHtml(block: unknown, attachments?: AttachmentMap): string {
   if (!block || typeof block !== 'object') return '';
   const b = block as { type?: string; content?: unknown[]; attrs?: Record<string, unknown> };
 
@@ -109,42 +119,69 @@ function adfBlockToHtml(block: unknown): string {
       return `<h${level}>${inlines}</h${level}>`;
     }
     case 'bulletList':
-      return `<ul>${(b.content || []).map(adfBlockToHtml).join('')}</ul>`;
+      return `<ul>${(b.content || []).map(c => adfBlockToHtml(c, attachments)).join('')}</ul>`;
     case 'orderedList':
-      return `<ol>${(b.content || []).map(adfBlockToHtml).join('')}</ol>`;
+      return `<ol>${(b.content || []).map(c => adfBlockToHtml(c, attachments)).join('')}</ol>`;
     case 'listItem':
-      return `<li>${(b.content || []).map(adfBlockToHtml).join('')}</li>`;
+      return `<li>${(b.content || []).map(c => adfBlockToHtml(c, attachments)).join('')}</li>`;
     case 'codeBlock':
       return `<pre class="adf-codeblock"><code>${inlines}</code></pre>`;
     case 'blockquote':
-      return `<blockquote class="adf-blockquote">${(b.content || []).map(adfBlockToHtml).join('')}</blockquote>`;
+      return `<blockquote class="adf-blockquote">${(b.content || []).map(c => adfBlockToHtml(c, attachments)).join('')}</blockquote>`;
     case 'rule':
       return '<hr/>';
     case 'mediaSingle':
     case 'mediaGroup':
-      return (b.content || []).map(adfBlockToHtml).join('');
-    case 'media':
+      return (b.content || []).map(c => adfBlockToHtml(c, attachments)).join('');
+    case 'media': {
+      const mediaId = b.attrs?.id as string;
+      const mediaAlt = b.attrs?.alt as string | undefined;
+      const att = attachments?.get(mediaId) || (mediaAlt ? attachments?.get(mediaAlt) : undefined);
+      if (att && att.mimeType?.startsWith('image/')) {
+        return `<img src="${escHtml(att.content)}" alt="${escHtml(att.filename)}" data-full-src="${escHtml(att.content)}" class="adf-media-img" style="max-width:100%;border-radius:6px;margin:8px 0;cursor:zoom-in;" />`;
+      }
+      if (att) {
+        return `<a href="${escHtml(att.content)}" target="_blank" rel="noopener" class="adf-link" style="display:inline-flex;align-items:center;gap:4px;padding:4px 8px;background:#f3f4f6;border-radius:6px;font-size:12px;text-decoration:none;color:#374151;">${escHtml(att.filename)}</a>`;
+      }
       return '<p class="adf-media">[media attachment]</p>';
+    }
     case 'table':
-      return `<table class="adf-table">${(b.content || []).map(adfBlockToHtml).join('')}</table>`;
+      return `<table class="adf-table">${(b.content || []).map(c => adfBlockToHtml(c, attachments)).join('')}</table>`;
     case 'tableRow':
-      return `<tr>${(b.content || []).map(adfBlockToHtml).join('')}</tr>`;
+      return `<tr>${(b.content || []).map(c => adfBlockToHtml(c, attachments)).join('')}</tr>`;
     case 'tableHeader':
-      return `<th>${(b.content || []).map(adfBlockToHtml).join('')}</th>`;
+      return `<th>${(b.content || []).map(c => adfBlockToHtml(c, attachments)).join('')}</th>`;
     case 'tableCell':
-      return `<td>${(b.content || []).map(adfBlockToHtml).join('')}</td>`;
+      return `<td>${(b.content || []).map(c => adfBlockToHtml(c, attachments)).join('')}</td>`;
     case 'panel':
-      return `<div class="adf-panel">${(b.content || []).map(adfBlockToHtml).join('')}</div>`;
+      return `<div class="adf-panel">${(b.content || []).map(c => adfBlockToHtml(c, attachments)).join('')}</div>`;
     default:
       return inlines || '';
   }
 }
 
-function adfToHtml(doc: unknown): string {
+function adfToHtml(doc: unknown, attachments?: AttachmentMap): string {
   if (!doc || typeof doc !== 'object') return '';
   const d = doc as { content?: unknown[] };
   if (!Array.isArray(d.content)) return '';
-  return d.content.map(adfBlockToHtml).join('');
+  return d.content.map(c => adfBlockToHtml(c, attachments)).join('');
+}
+
+// Collect all media IDs and alt texts referenced in ADF so we can find unreferenced attachments
+function collectAdfMediaRefs(node: unknown): Set<string> {
+  const refs = new Set<string>();
+  if (!node || typeof node !== 'object') return refs;
+  const n = node as { type?: string; attrs?: Record<string, unknown>; content?: unknown[] };
+  if (n.type === 'media') {
+    if (n.attrs?.id) refs.add(String(n.attrs.id));
+    if (n.attrs?.alt) refs.add(String(n.attrs.alt));
+  }
+  if (Array.isArray(n.content)) {
+    for (const child of n.content) {
+      for (const ref of collectAdfMediaRefs(child)) refs.add(ref);
+    }
+  }
+  return refs;
 }
 
 export default function IssueDetailPanel({ issueKey, onClose, onUpdated, onSelectIssue }: IssueDetailPanelProps) {
@@ -152,6 +189,19 @@ export default function IssueDetailPanel({ issueKey, onClose, onUpdated, onSelec
   const [comments, setComments] = useState<JiraComment[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+
+  // Build attachment lookup maps from issue data (by ID and by filename)
+  const attachmentMap = useMemo(() => {
+    const map: AttachmentMap = new Map();
+    const atts = issue?.fields?.attachment as AttachmentInfo[] | undefined;
+    if (atts) {
+      for (const att of atts) {
+        map.set(att.id, att);
+        map.set(att.filename, att);
+      }
+    }
+    return map;
+  }, [issue]);
 
   // Description editing
   const [editingDesc, setEditingDesc] = useState(false);
@@ -163,6 +213,9 @@ export default function IssueDetailPanel({ issueKey, onClose, onUpdated, onSelec
   const [addingComment, setAddingComment] = useState(false);
   const [pendingFiles, setPendingFiles] = useState<File[]>([]);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const [lightboxSrc, setLightboxSrc] = useState<string | null>(null);
+  const [descFiles, setDescFiles] = useState<File[]>([]);
+  const descFileInputRef = useRef<HTMLInputElement>(null);
 
   // Edit comment
   const [editingCommentId, setEditingCommentId] = useState<string | null>(null);
@@ -242,6 +295,12 @@ export default function IssueDetailPanel({ issueKey, onClose, onUpdated, onSelec
   const handleSaveDescription = async () => {
     setSavingDesc(true);
     try {
+      // Upload any pending description files as issue attachments
+      if (descFiles.length > 0) {
+        await uploadAttachments(issueKey, descFiles);
+        setDescFiles([]);
+      }
+
       const description = {
         type: 'doc',
         version: 1,
@@ -275,7 +334,6 @@ export default function IssueDetailPanel({ issueKey, onClose, onUpdated, onSelec
       }
       const updated = await fetchComments(issueKey);
       setComments(updated);
-      // Refresh issue to show new attachments
       const refreshed = await fetchIssueDetail(issueKey);
       setIssue(refreshed);
     } catch (e) {
@@ -635,7 +693,17 @@ export default function IssueDetailPanel({ issueKey, onClose, onUpdated, onSelec
           ) : issue ? (
             <div className="flex flex-col md:flex-row min-h-0 flex-1 overflow-hidden">
               {/* Main content — left side */}
-              <div className="flex-1 px-6 py-5 space-y-5 md:border-r border-gray-200 dark:border-gray-800 min-w-0 overflow-y-auto">
+              <div
+                className="flex-1 px-6 py-5 space-y-5 md:border-r border-gray-200 dark:border-gray-800 min-w-0 overflow-y-auto"
+                onClick={(e) => {
+                  const target = e.target as HTMLElement;
+                  if (target.classList.contains('adf-media-img')) {
+                    e.preventDefault();
+                    const src = target.getAttribute('data-full-src') || target.getAttribute('src');
+                    if (src) setLightboxSrc(src);
+                  }
+                }}
+              >
                 {error && (
                   <div className="p-2.5 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg text-xs text-red-700 dark:text-red-400">
                     {error}
@@ -683,15 +751,88 @@ export default function IssueDetailPanel({ issueKey, onClose, onUpdated, onSelec
                       <textarea
                         value={descDraft}
                         onChange={(e) => setDescDraft(e.target.value)}
+                        onPaste={(e) => {
+                          const items = e.clipboardData?.items;
+                          if (!items) return;
+                          const files: File[] = [];
+                          for (const item of items) {
+                            if (item.kind === 'file') {
+                              const file = item.getAsFile();
+                              if (file) {
+                                const ext = file.type.split('/')[1] || 'png';
+                                const named = new File([file], `pasted-image-${Date.now()}.${ext}`, { type: file.type });
+                                files.push(named);
+                              }
+                            }
+                          }
+                          if (files.length > 0) {
+                            e.preventDefault();
+                            setDescFiles(prev => [...prev, ...files]);
+                          }
+                        }}
                         rows={8}
                         autoFocus
+                        placeholder="Write a description... (paste images here)"
                         className="w-full border border-gray-300 dark:border-gray-600 rounded-lg px-3 py-2 text-sm bg-white dark:bg-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500 resize-y"
                       />
-                      <div className="flex gap-2">
+                      {/* Pending description file previews */}
+                      {descFiles.length > 0 && (
+                        <div className="flex flex-wrap gap-2">
+                          {descFiles.map((file, i) => (
+                            <div key={i} className="relative group">
+                              {file.type.startsWith('image/') ? (
+                                <div className="relative w-20 h-20 rounded-lg overflow-hidden border border-gray-200 dark:border-gray-700">
+                                  <img src={URL.createObjectURL(file)} alt={file.name} className="w-full h-full object-cover" />
+                                  <button
+                                    onClick={() => setDescFiles(prev => prev.filter((_, j) => j !== i))}
+                                    className="absolute top-0.5 right-0.5 w-4 h-4 bg-black/60 rounded-full flex items-center justify-center text-white opacity-0 group-hover:opacity-100 transition-opacity"
+                                  >
+                                    <svg className="w-2.5 h-2.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M6 18L18 6M6 6l12 12" />
+                                    </svg>
+                                  </button>
+                                </div>
+                              ) : (
+                                <div className="flex items-center gap-1.5 bg-gray-100 dark:bg-gray-800 rounded-lg px-2.5 py-1.5 text-xs">
+                                  <span className="truncate max-w-[150px]">{file.name}</span>
+                                  <span className="text-gray-400">({(file.size / 1024).toFixed(0)}KB)</span>
+                                  <button onClick={() => setDescFiles(prev => prev.filter((_, j) => j !== i))} className="text-gray-400 hover:text-red-500 ml-0.5">
+                                    <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                                    </svg>
+                                  </button>
+                                </div>
+                              )}
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                      <div className="flex items-center gap-2">
+                        <input
+                          ref={descFileInputRef}
+                          type="file"
+                          multiple
+                          className="hidden"
+                          onChange={(e) => {
+                            if (e.target.files) {
+                              setDescFiles(prev => [...prev, ...Array.from(e.target.files!)]);
+                              e.target.value = '';
+                            }
+                          }}
+                        />
+                        <button
+                          onClick={() => descFileInputRef.current?.click()}
+                          className="text-xs px-2.5 py-1.5 border border-gray-200 dark:border-gray-700 rounded-md hover:bg-gray-100 dark:hover:bg-gray-800 text-gray-500 dark:text-gray-400 flex items-center gap-1.5"
+                        >
+                          <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13" />
+                          </svg>
+                          Attach
+                        </button>
                         <button onClick={handleSaveDescription} disabled={savingDesc} className="text-xs px-3 py-1.5 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:opacity-50">
                           {savingDesc ? 'Saving...' : 'Save'}
                         </button>
-                        <button onClick={() => { setEditingDesc(false); setDescDraft(adfToPlainText(issue.fields.description)); }} className="text-xs px-3 py-1.5 border border-gray-300 dark:border-gray-600 rounded-md hover:bg-gray-100 dark:hover:bg-gray-800">
+                        <button onClick={() => { setEditingDesc(false); setDescDraft(adfToPlainText(issue.fields.description)); setDescFiles([]); }} className="text-xs px-3 py-1.5 border border-gray-300 dark:border-gray-600 rounded-md hover:bg-gray-100 dark:hover:bg-gray-800">
                           Cancel
                         </button>
                       </div>
@@ -702,16 +843,51 @@ export default function IssueDetailPanel({ issueKey, onClose, onUpdated, onSelec
                       onClick={() => setEditingDesc(true)}
                       title="Click to edit"
                     >
-                      {adfToHtml(issue.fields.description) ? (
-                        <div
-                          className="adf-content text-sm text-gray-700 dark:text-gray-300 bg-gray-50 dark:bg-gray-800/50 rounded-lg p-3 min-h-[40px]"
-                          dangerouslySetInnerHTML={{ __html: adfToHtml(issue.fields.description) }}
-                        />
-                      ) : (
-                        <div className="text-sm bg-gray-50 dark:bg-gray-800/50 rounded-lg p-3 min-h-[40px]">
-                          <span className="text-gray-400 italic">Click to add description...</span>
-                        </div>
-                      )}
+                      {(() => {
+                        const descHtml = adfToHtml(issue.fields.description, attachmentMap);
+                        const allAtts = (issue.fields.attachment || []) as { id: string; filename: string; mimeType: string; content: string; thumbnail?: string; created: string }[];
+                        // Find attachments not already rendered via ADF media nodes
+                        const mediaRefs = collectAdfMediaRefs(issue.fields.description);
+                        const unreferencedAtts = allAtts.filter((att) => !mediaRefs.has(att.id) && !mediaRefs.has(att.filename));
+
+                        if (!descHtml && unreferencedAtts.length === 0) {
+                          return (
+                            <div className="text-sm bg-gray-50 dark:bg-gray-800/50 rounded-lg p-3 min-h-[40px]">
+                              <span className="text-gray-400 italic">Click to add description...</span>
+                            </div>
+                          );
+                        }
+
+                        return (
+                          <div className="adf-content text-sm text-gray-700 dark:text-gray-300 bg-gray-50 dark:bg-gray-800/50 rounded-lg p-3 min-h-[40px]">
+                            {descHtml && <div dangerouslySetInnerHTML={{ __html: descHtml }} />}
+                            {unreferencedAtts.map((att) => {
+                              const isImage = att.mimeType?.startsWith('image/');
+                              return isImage ? (
+                                <img
+                                  key={att.id}
+                                  src={att.content}
+                                  alt={att.filename}
+                                  className="adf-media-img"
+                                  style={{ maxWidth: '100%', borderRadius: 6, margin: '8px 0', cursor: 'zoom-in' }}
+                                  onClick={(e) => { e.stopPropagation(); setLightboxSrc(att.content); }}
+                                />
+                              ) : (
+                                <a
+                                  key={att.id}
+                                  href={att.content}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  onClick={(e) => e.stopPropagation()}
+                                  style={{ display: 'inline-flex', alignItems: 'center', gap: 4, padding: '4px 8px', background: '#f3f4f6', borderRadius: 6, fontSize: 12, textDecoration: 'none', color: '#374151', margin: '8px 0' }}
+                                >
+                                  {att.filename}
+                                </a>
+                              );
+                            })}
+                          </div>
+                        );
+                      })()}
                     </div>
                   )}
                 </div>
@@ -931,7 +1107,27 @@ export default function IssueDetailPanel({ issueKey, onClose, onUpdated, onSelec
                         <textarea
                           value={newComment}
                           onChange={(e) => setNewComment(e.target.value)}
-                          placeholder="Add a comment..."
+                          onPaste={(e) => {
+                            const items = e.clipboardData?.items;
+                            if (!items) return;
+                            const files: File[] = [];
+                            for (const item of items) {
+                              if (item.kind === 'file') {
+                                const file = item.getAsFile();
+                                if (file) {
+                                  // Give pasted images a meaningful name
+                                  const ext = file.type.split('/')[1] || 'png';
+                                  const named = new File([file], `pasted-image-${Date.now()}.${ext}`, { type: file.type });
+                                  files.push(named);
+                                }
+                              }
+                            }
+                            if (files.length > 0) {
+                              e.preventDefault();
+                              setPendingFiles(prev => [...prev, ...files]);
+                            }
+                          }}
+                          placeholder="Add a comment... (paste images here)"
                           rows={2}
                           className="w-full border border-gray-200 dark:border-gray-700 rounded-lg px-3 py-2 text-sm bg-white dark:bg-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent resize-y"
                         />
@@ -939,20 +1135,40 @@ export default function IssueDetailPanel({ issueKey, onClose, onUpdated, onSelec
                         {pendingFiles.length > 0 && (
                           <div className="flex flex-wrap gap-2 mt-2">
                             {pendingFiles.map((file, i) => (
-                              <div key={i} className="flex items-center gap-1.5 bg-gray-100 dark:bg-gray-800 rounded-lg px-2.5 py-1.5 text-xs">
-                                <svg className="w-3.5 h-3.5 text-gray-400 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13" />
-                                </svg>
-                                <span className="truncate max-w-[150px]">{file.name}</span>
-                                <span className="text-gray-400">({(file.size / 1024).toFixed(0)}KB)</span>
-                                <button
-                                  onClick={() => setPendingFiles(prev => prev.filter((_, j) => j !== i))}
-                                  className="text-gray-400 hover:text-red-500 ml-0.5"
-                                >
-                                  <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                                  </svg>
-                                </button>
+                              <div key={i} className="relative group">
+                                {file.type.startsWith('image/') ? (
+                                  <div className="relative w-20 h-20 rounded-lg overflow-hidden border border-gray-200 dark:border-gray-700">
+                                    <img
+                                      src={URL.createObjectURL(file)}
+                                      alt={file.name}
+                                      className="w-full h-full object-cover"
+                                    />
+                                    <button
+                                      onClick={() => setPendingFiles(prev => prev.filter((_, j) => j !== i))}
+                                      className="absolute top-0.5 right-0.5 w-4 h-4 bg-black/60 rounded-full flex items-center justify-center text-white opacity-0 group-hover:opacity-100 transition-opacity"
+                                    >
+                                      <svg className="w-2.5 h-2.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M6 18L18 6M6 6l12 12" />
+                                      </svg>
+                                    </button>
+                                  </div>
+                                ) : (
+                                  <div className="flex items-center gap-1.5 bg-gray-100 dark:bg-gray-800 rounded-lg px-2.5 py-1.5 text-xs">
+                                    <svg className="w-3.5 h-3.5 text-gray-400 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13" />
+                                    </svg>
+                                    <span className="truncate max-w-[150px]">{file.name}</span>
+                                    <span className="text-gray-400">({(file.size / 1024).toFixed(0)}KB)</span>
+                                    <button
+                                      onClick={() => setPendingFiles(prev => prev.filter((_, j) => j !== i))}
+                                      className="text-gray-400 hover:text-red-500 ml-0.5"
+                                    >
+                                      <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                                      </svg>
+                                    </button>
+                                  </div>
+                                )}
                               </div>
                             ))}
                           </div>
@@ -1036,7 +1252,7 @@ export default function IssueDetailPanel({ issueKey, onClose, onUpdated, onSelec
                                   <span className="text-[10px] px-1.5 py-0.5 bg-blue-50 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400 rounded">comment</span>
                                   <span className="text-xs text-gray-400" title={new Date(c.created).toLocaleString()}>{timeAgo(c.created)}</span>
                                 </div>
-                                <div className="adf-content text-sm text-gray-700 dark:text-gray-300 leading-relaxed" dangerouslySetInnerHTML={{ __html: adfToHtml(c.body) }} />
+                                <div className="adf-content text-sm text-gray-700 dark:text-gray-300 leading-relaxed" dangerouslySetInnerHTML={{ __html: adfToHtml(c.body, attachmentMap) }} />
                               </div>
                             </div>
                           );
@@ -1136,7 +1352,7 @@ export default function IssueDetailPanel({ issueKey, onClose, onUpdated, onSelec
                                 </div>
                               ) : (
                                 <div className="group">
-                                  <div className="adf-content text-sm text-gray-700 dark:text-gray-300 leading-relaxed" dangerouslySetInnerHTML={{ __html: adfToHtml(c.body) }} />
+                                  <div className="adf-content text-sm text-gray-700 dark:text-gray-300 leading-relaxed" dangerouslySetInnerHTML={{ __html: adfToHtml(c.body, attachmentMap) }} />
                                   <div className="flex gap-3 mt-1 opacity-0 group-hover:opacity-100 transition-opacity">
                                     <button onClick={() => startEditComment(c)} className="text-xs text-gray-400 hover:text-blue-600">Edit</button>
                                     <button onClick={() => handleDeleteComment(c.id)} className="text-xs text-gray-400 hover:text-red-500">Delete</button>
@@ -1205,7 +1421,7 @@ export default function IssueDetailPanel({ issueKey, onClose, onUpdated, onSelec
                                 {' '}on {new Date(w.started).toLocaleDateString()}
                               </p>
                               {!!w.comment && (
-                                <div className="adf-content text-xs text-gray-500 mt-1" dangerouslySetInnerHTML={{ __html: adfToHtml(w.comment as Record<string, unknown>) }} />
+                                <div className="adf-content text-xs text-gray-500 mt-1" dangerouslySetInnerHTML={{ __html: adfToHtml(w.comment as Record<string, unknown>, attachmentMap) }} />
                               )}
                             </div>
                           </div>
@@ -1586,6 +1802,28 @@ export default function IssueDetailPanel({ issueKey, onClose, onUpdated, onSelec
           ) : null}
         </div>
       </div>
+      {/* Image lightbox */}
+      {lightboxSrc && (
+        <div
+          className="fixed inset-0 z-[60] bg-black/80 flex items-center justify-center p-8"
+          onClick={() => setLightboxSrc(null)}
+        >
+          <button
+            onClick={() => setLightboxSrc(null)}
+            className="absolute top-4 right-4 text-white/80 hover:text-white"
+          >
+            <svg className="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+            </svg>
+          </button>
+          <img
+            src={lightboxSrc}
+            alt=""
+            className="max-w-full max-h-full object-contain rounded-lg"
+            onClick={(e) => e.stopPropagation()}
+          />
+        </div>
+      )}
     </>
   );
 }

@@ -330,7 +330,7 @@ export async function addComment(key: string, bodyText: string): Promise<JiraCom
   const body = {
     type: 'doc',
     version: 1,
-    content: [{ type: 'paragraph', content: [{ type: 'text', text: bodyText }] }],
+    content: [{ type: 'paragraph', content: [{ type: 'text', text: bodyText || ' ' }] }],
   };
   const res = await authFetch(`${API_BASE}/api/issues/${key}/comments`, {
     method: 'POST',
