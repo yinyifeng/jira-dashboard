@@ -338,7 +338,7 @@ export default function App() {
 
       <div className="max-w-screen-2xl mx-auto px-4 py-4">
         {/* Filters */}
-        <div className="flex items-center gap-1.5 mb-4">
+        <div className="flex items-center gap-1.5 mb-4 flex-wrap">
           {/* Project */}
           <select
             value={selectedBoard}
@@ -411,7 +411,7 @@ export default function App() {
             const team = teams[0];
             if (!team || team.members.length === 0) return null;
             return (
-              <div className="flex items-center gap-2 ml-auto flex-shrink-0">
+              <div className="flex items-center gap-2 flex-wrap">
                 <div className="h-4 w-px bg-gray-300 dark:bg-gray-700" />
                 {team.members.map((m) => {
                   const isSelected = selectedMembers.size === 0 || selectedMembers.has(m.accountId);
