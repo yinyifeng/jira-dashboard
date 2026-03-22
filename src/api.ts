@@ -219,6 +219,45 @@ export async function deleteIssueLink(linkId: string): Promise<void> {
   if (!res.ok) throw new Error('Failed to delete link');
 }
 
+export interface ChangelogItem {
+  field: string;
+  fieldtype: string;
+  fromString: string | null;
+  toString: string | null;
+}
+
+export interface ChangelogEntry {
+  id: string;
+  author: { displayName: string; avatarUrls: Record<string, string>; accountId: string };
+  created: string;
+  items: ChangelogItem[];
+}
+
+export async function fetchChangelog(key: string): Promise<ChangelogEntry[]> {
+  const res = await authFetch(`${API_BASE}/api/issues/${key}/changelog`);
+  if (!res.ok) throw new Error('Failed to fetch changelog');
+  const data = await res.json();
+  return data.values || [];
+}
+
+export interface WorklogEntry {
+  id: string;
+  author: { displayName: string; avatarUrls: Record<string, string>; accountId: string };
+  created: string;
+  updated: string;
+  started: string;
+  timeSpent: string;
+  timeSpentSeconds: number;
+  comment?: unknown;
+}
+
+export async function fetchWorklog(key: string): Promise<WorklogEntry[]> {
+  const res = await authFetch(`${API_BASE}/api/issues/${key}/worklog`);
+  if (!res.ok) throw new Error('Failed to fetch worklog');
+  const data = await res.json();
+  return data.worklogs || [];
+}
+
 // --- Shared teams ---
 export interface TeamMember {
   accountId: string;

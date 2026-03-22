@@ -2,6 +2,8 @@ import { useState, useEffect } from 'react';
 import {
   fetchIssueDetail,
   fetchComments,
+  fetchChangelog,
+  fetchWorklog,
   fetchPriorities,
   fetchIssueTypes,
   fetchTransitions,
@@ -19,6 +21,8 @@ import {
   type JiraComment,
   type IssueLink,
   type IssueLinkType,
+  type ChangelogEntry,
+  type WorklogEntry,
 } from '../api';
 import StatusBadge from './StatusBadge';
 
@@ -26,6 +30,7 @@ interface IssueDetailPanelProps {
   issueKey: string;
   onClose: () => void;
   onUpdated: () => void;
+  onSelectIssue?: (key: string) => void;
 }
 
 // --- ADF to plain text (for editing) ---
@@ -141,7 +146,7 @@ function adfToHtml(doc: unknown): string {
   return d.content.map(adfBlockToHtml).join('');
 }
 
-export default function IssueDetailPanel({ issueKey, onClose, onUpdated }: IssueDetailPanelProps) {
+export default function IssueDetailPanel({ issueKey, onClose, onUpdated, onSelectIssue }: IssueDetailPanelProps) {
   const [issue, setIssue] = useState<JiraIssue | null>(null);
   const [comments, setComments] = useState<JiraComment[]>([]);
   const [loading, setLoading] = useState(true);
@@ -192,6 +197,11 @@ export default function IssueDetailPanel({ issueKey, onClose, onUpdated }: Issue
   const [fieldDraft, setFieldDraft] = useState('');
   const [savingField, setSavingField] = useState(false);
 
+  // Activity tabs
+  const [activityTab, setActivityTab] = useState<'all' | 'comments' | 'history' | 'worklog'>('comments');
+  const [changelog, setChangelog] = useState<ChangelogEntry[]>([]);
+  const [worklog, setWorklog] = useState<WorklogEntry[]>([]);
+
   // Linked issues
   const [addingLink, setAddingLink] = useState(false);
   const [linkTypes, setLinkTypes] = useState<IssueLinkType[]>([]);
@@ -213,6 +223,10 @@ export default function IssueDetailPanel({ issueKey, onClose, onUpdated }: Issue
       setIssue(issueData);
       setComments(commentsData);
       setDescDraft(adfToPlainText(issueData.fields.description));
+
+      // Load changelog and worklog in the background (non-blocking)
+      fetchChangelog(issueKey).then(setChangelog).catch(() => setChangelog([]));
+      fetchWorklog(issueKey).then(setWorklog).catch(() => setWorklog([]));
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Failed to load issue');
     } finally {
@@ -676,6 +690,53 @@ export default function IssueDetailPanel({ issueKey, onClose, onUpdated }: Issue
                   )}
                 </div>
 
+                {/* Child Work Items (Subtasks) */}
+                {(() => {
+                  const subtasks = (issue.fields.subtasks || []) as { key: string; fields: { summary: string; status: { name: string; statusCategory: { name: string; colorName: string } }; issuetype: { name: string; iconUrl: string }; priority?: { name: string; iconUrl: string } } }[];
+                  const doneCount = subtasks.filter(s => s.fields.status.statusCategory?.name === 'Done').length;
+                  const progressPct = subtasks.length > 0 ? Math.round((doneCount / subtasks.length) * 100) : 0;
+                  return (
+                    <div>
+                      <h3 className="text-xs font-semibold uppercase tracking-wider text-gray-400 mb-2">
+                        Child Issues
+                        {subtasks.length > 0 && <span className="text-gray-300 dark:text-gray-600"> ({doneCount}/{subtasks.length})</span>}
+                      </h3>
+                      {subtasks.length > 0 ? (
+                        <>
+                          {/* Progress bar */}
+                          <div className="flex items-center gap-2 mb-2">
+                            <div className="flex-1 bg-gray-200 dark:bg-gray-700 rounded-full h-1.5">
+                              <div
+                                className="h-1.5 rounded-full bg-green-500 transition-all"
+                                style={{ width: `${progressPct}%` }}
+                              />
+                            </div>
+                            <span className="text-xs text-gray-500">{progressPct}%</span>
+                          </div>
+                          {/* Subtask list */}
+                          <div className="space-y-1">
+                            {subtasks.map((st) => (
+                              <div
+                                key={st.key}
+                                className="flex items-center gap-2 px-2 py-1.5 rounded hover:bg-gray-50 dark:hover:bg-gray-800/50 transition-colors cursor-pointer"
+                                onClick={() => onSelectIssue?.(st.key)}
+                              >
+                                {st.fields.issuetype?.iconUrl && <img src={st.fields.issuetype.iconUrl} alt="" className="w-3.5 h-3.5 flex-shrink-0" />}
+                                <span className="font-mono text-xs text-blue-600 dark:text-blue-400 flex-shrink-0">{st.key}</span>
+                                <span className="text-xs text-gray-700 dark:text-gray-300 truncate flex-1">{st.fields.summary}</span>
+                                {st.fields.priority?.iconUrl && <img src={st.fields.priority.iconUrl} alt="" className="w-3.5 h-3.5 flex-shrink-0" />}
+                                <StatusBadge name={st.fields.status.name} colorName={st.fields.status.statusCategory?.colorName || 'blue-gray'} />
+                              </div>
+                            ))}
+                          </div>
+                        </>
+                      ) : (
+                        <p className="text-xs text-gray-400 italic">No child issues</p>
+                      )}
+                    </div>
+                  );
+                })()}
+
                 {/* Linked Issues */}
                 <div>
                   <div className="flex items-center justify-between mb-2">
@@ -784,7 +845,7 @@ export default function IssueDetailPanel({ issueKey, onClose, onUpdated }: Issue
                             <span className="text-[10px] font-semibold uppercase tracking-wider text-gray-400">{label}</span>
                             <div className="mt-1 space-y-1">
                               {items.map(({ link, targetKey, targetSummary, targetStatus, targetType }) => (
-                                <div key={link.id} className="group flex items-center gap-2 px-2 py-1.5 rounded hover:bg-gray-50 dark:hover:bg-gray-800/50 transition-colors">
+                                <div key={link.id} className="group flex items-center gap-2 px-2 py-1.5 rounded hover:bg-gray-50 dark:hover:bg-gray-800/50 transition-colors cursor-pointer" onClick={() => onSelectIssue?.(targetKey)}>
                                   {targetType?.iconUrl && <img src={targetType.iconUrl} alt="" className="w-3.5 h-3.5 flex-shrink-0" />}
                                   <span className="font-mono text-xs text-blue-600 dark:text-blue-400 flex-shrink-0">{targetKey}</span>
                                   <span className="text-xs text-gray-700 dark:text-gray-300 truncate flex-1">{targetSummary}</span>
@@ -808,111 +869,274 @@ export default function IssueDetailPanel({ issueKey, onClose, onUpdated }: Issue
                   })()}
                 </div>
 
-                {/* Activity / Comments */}
+                {/* Activity */}
                 <div>
-                  <h3 className="text-xs font-semibold uppercase tracking-wider text-gray-400 mb-3">
-                    Activity <span className="text-gray-300 dark:text-gray-600">({comments.length})</span>
-                  </h3>
+                  <h3 className="text-xs font-semibold uppercase tracking-wider text-gray-400 mb-2">Activity</h3>
 
-                  {/* Add comment — top */}
-                  <div className="flex gap-3 mb-4">
-                    <div className="w-8 h-8 rounded-full bg-blue-100 dark:bg-blue-900/40 flex items-center justify-center text-blue-600 dark:text-blue-400 text-xs font-semibold flex-shrink-0">
-                      You
-                    </div>
-                    <div className="flex-1">
-                      <textarea
-                        value={newComment}
-                        onChange={(e) => setNewComment(e.target.value)}
-                        placeholder="Add a comment..."
-                        rows={2}
-                        className="w-full border border-gray-200 dark:border-gray-700 rounded-lg px-3 py-2 text-sm bg-white dark:bg-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent resize-y"
-                      />
-                      {newComment.trim() && (
-                        <div className="flex gap-2 mt-2">
-                          <button
-                            onClick={handleAddComment}
-                            disabled={addingComment}
-                            className="text-xs px-3 py-1.5 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:opacity-50"
-                          >
-                            {addingComment ? 'Saving...' : 'Save'}
-                          </button>
-                          <button onClick={() => setNewComment('')} className="text-xs px-3 py-1.5 text-gray-500 hover:text-gray-700">
-                            Cancel
-                          </button>
-                        </div>
-                      )}
-                    </div>
+                  {/* Tab bar */}
+                  <div className="flex gap-1 mb-3 border-b border-gray-200 dark:border-gray-700">
+                    {([
+                      { key: 'all', label: 'All' },
+                      { key: 'comments', label: `Comments (${comments.length})` },
+                      { key: 'history', label: `History (${changelog.length})` },
+                      { key: 'worklog', label: `Work log (${worklog.length})` },
+                    ] as { key: typeof activityTab; label: string }[]).map((tab) => (
+                      <button
+                        key={tab.key}
+                        onClick={() => setActivityTab(tab.key)}
+                        className={`px-3 py-1.5 text-xs font-medium border-b-2 transition-colors -mb-px ${
+                          activityTab === tab.key
+                            ? 'border-blue-500 text-blue-600 dark:text-blue-400'
+                            : 'border-transparent text-gray-500 hover:text-gray-700 dark:hover:text-gray-300'
+                        }`}
+                      >
+                        {tab.label}
+                      </button>
+                    ))}
                   </div>
 
-                  {/* Comment list */}
-                  <div className="space-y-0">
-                    {comments.map((c, i) => (
-                      <div key={c.id} className={`flex gap-3 py-3 ${i > 0 ? 'border-t border-gray-100 dark:border-gray-800' : ''}`}>
-                        {/* Avatar */}
-                        {c.author.avatarUrls?.['24x24'] ? (
-                          <img src={c.author.avatarUrls['24x24']} alt="" className="w-8 h-8 rounded-full flex-shrink-0" />
-                        ) : (
-                          <div className="w-8 h-8 rounded-full bg-gray-200 dark:bg-gray-700 flex items-center justify-center text-xs font-semibold text-gray-500 flex-shrink-0">
-                            {c.author.displayName.charAt(0)}
+                  {/* Add comment (shown on All and Comments tabs) */}
+                  {(activityTab === 'all' || activityTab === 'comments') && (
+                    <div className="flex gap-3 mb-4">
+                      <div className="w-8 h-8 rounded-full bg-blue-100 dark:bg-blue-900/40 flex items-center justify-center text-blue-600 dark:text-blue-400 text-xs font-semibold flex-shrink-0">
+                        You
+                      </div>
+                      <div className="flex-1">
+                        <textarea
+                          value={newComment}
+                          onChange={(e) => setNewComment(e.target.value)}
+                          placeholder="Add a comment..."
+                          rows={2}
+                          className="w-full border border-gray-200 dark:border-gray-700 rounded-lg px-3 py-2 text-sm bg-white dark:bg-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent resize-y"
+                        />
+                        {newComment.trim() && (
+                          <div className="flex gap-2 mt-2">
+                            <button
+                              onClick={handleAddComment}
+                              disabled={addingComment}
+                              className="text-xs px-3 py-1.5 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:opacity-50"
+                            >
+                              {addingComment ? 'Saving...' : 'Save'}
+                            </button>
+                            <button onClick={() => setNewComment('')} className="text-xs px-3 py-1.5 text-gray-500 hover:text-gray-700">
+                              Cancel
+                            </button>
                           </div>
                         )}
-
-                        <div className="flex-1 min-w-0">
-                          {/* Author line */}
-                          <div className="flex items-center gap-2 mb-1">
-                            <span className="text-sm font-medium text-gray-900 dark:text-gray-100">
-                              {c.author.displayName}
-                            </span>
-                            <span className="text-xs text-gray-400" title={new Date(c.created).toLocaleString()}>
-                              {timeAgo(c.created)}
-                            </span>
-                            {c.updated !== c.created && (
-                              <span className="text-xs text-gray-400 italic" title={new Date(c.updated).toLocaleString()}>
-                                (edited)
-                              </span>
-                            )}
-                          </div>
-
-                          {/* Comment body or edit form */}
-                          {editingCommentId === c.id ? (
-                            <div className="space-y-2">
-                              <textarea
-                                value={editCommentDraft}
-                                onChange={(e) => setEditCommentDraft(e.target.value)}
-                                rows={3}
-                                autoFocus
-                                className="w-full border border-gray-300 dark:border-gray-600 rounded-lg px-3 py-2 text-sm bg-white dark:bg-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500 resize-y"
-                              />
-                              <div className="flex gap-2">
-                                <button onClick={() => handleEditComment(c.id)} disabled={savingComment} className="text-xs px-2.5 py-1 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:opacity-50">
-                                  {savingComment ? 'Saving...' : 'Save'}
-                                </button>
-                                <button onClick={() => setEditingCommentId(null)} className="text-xs px-2.5 py-1 text-gray-500 hover:text-gray-700">
-                                  Cancel
-                                </button>
-                              </div>
-                            </div>
-                          ) : (
-                            <div className="group">
-                              <div
-                                className="adf-content text-sm text-gray-700 dark:text-gray-300 leading-relaxed"
-                                dangerouslySetInnerHTML={{ __html: adfToHtml(c.body) }}
-                              />
-                              <div className="flex gap-3 mt-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                                <button onClick={() => startEditComment(c)} className="text-xs text-gray-400 hover:text-blue-600">
-                                  Edit
-                                </button>
-                                <button onClick={() => handleDeleteComment(c.id)} className="text-xs text-gray-400 hover:text-red-500">
-                                  Delete
-                                </button>
-                              </div>
-                            </div>
-                          )}
-                        </div>
                       </div>
-                    ))}
-                    {comments.length === 0 && (
-                      <p className="text-sm text-gray-400 italic py-2">No comments yet</p>
+                    </div>
+                  )}
+
+                  {/* Activity content */}
+                  <div className="space-y-0">
+                    {/* All tab: merge comments + history + worklog sorted by date */}
+                    {activityTab === 'all' && (() => {
+                      type ActivityItem =
+                        | { type: 'comment'; date: string; data: JiraComment }
+                        | { type: 'changelog'; date: string; data: ChangelogEntry }
+                        | { type: 'worklog'; date: string; data: WorklogEntry };
+                      const items: ActivityItem[] = [
+                        ...comments.map((c) => ({ type: 'comment' as const, date: c.created, data: c })),
+                        ...changelog.map((ch) => ({ type: 'changelog' as const, date: ch.created, data: ch })),
+                        ...worklog.map((w) => ({ type: 'worklog' as const, date: w.started, data: w })),
+                      ].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+
+                      if (items.length === 0) return <p className="text-sm text-gray-400 italic py-2">No activity</p>;
+
+                      return items.map((item, i) => {
+                        if (item.type === 'comment') {
+                          const c = item.data;
+                          return (
+                            <div key={`c-${c.id}`} className={`flex gap-3 py-3 ${i > 0 ? 'border-t border-gray-100 dark:border-gray-800' : ''}`}>
+                              {c.author.avatarUrls?.['24x24'] ? (
+                                <img src={c.author.avatarUrls['24x24']} alt="" className="w-8 h-8 rounded-full flex-shrink-0" />
+                              ) : (
+                                <div className="w-8 h-8 rounded-full bg-gray-200 dark:bg-gray-700 flex items-center justify-center text-xs font-semibold text-gray-500 flex-shrink-0">
+                                  {c.author.displayName.charAt(0)}
+                                </div>
+                              )}
+                              <div className="flex-1 min-w-0">
+                                <div className="flex items-center gap-2 mb-1">
+                                  <span className="text-sm font-medium text-gray-900 dark:text-gray-100">{c.author.displayName}</span>
+                                  <span className="text-[10px] px-1.5 py-0.5 bg-blue-50 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400 rounded">comment</span>
+                                  <span className="text-xs text-gray-400" title={new Date(c.created).toLocaleString()}>{timeAgo(c.created)}</span>
+                                </div>
+                                <div className="adf-content text-sm text-gray-700 dark:text-gray-300 leading-relaxed" dangerouslySetInnerHTML={{ __html: adfToHtml(c.body) }} />
+                              </div>
+                            </div>
+                          );
+                        }
+                        if (item.type === 'changelog') {
+                          const ch = item.data;
+                          return (
+                            <div key={`h-${ch.id}`} className={`flex gap-3 py-3 ${i > 0 ? 'border-t border-gray-100 dark:border-gray-800' : ''}`}>
+                              {ch.author.avatarUrls?.['24x24'] ? (
+                                <img src={ch.author.avatarUrls['24x24']} alt="" className="w-8 h-8 rounded-full flex-shrink-0" />
+                              ) : (
+                                <div className="w-8 h-8 rounded-full bg-gray-200 dark:bg-gray-700 flex items-center justify-center text-xs font-semibold text-gray-500 flex-shrink-0">
+                                  {ch.author.displayName.charAt(0)}
+                                </div>
+                              )}
+                              <div className="flex-1 min-w-0">
+                                <div className="flex items-center gap-2 mb-1">
+                                  <span className="text-sm font-medium text-gray-900 dark:text-gray-100">{ch.author.displayName}</span>
+                                  <span className="text-[10px] px-1.5 py-0.5 bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-400 rounded">history</span>
+                                  <span className="text-xs text-gray-400" title={new Date(ch.created).toLocaleString()}>{timeAgo(ch.created)}</span>
+                                </div>
+                                <div className="space-y-0.5">
+                                  {ch.items.map((item, j) => (
+                                    <p key={j} className="text-xs text-gray-600 dark:text-gray-400">
+                                      <span className="font-medium">{item.field}</span>
+                                      {item.fromString && <> from <span className="line-through text-gray-400">{item.fromString}</span></>}
+                                      {item.toString && <> to <span className="font-medium text-gray-700 dark:text-gray-300">{item.toString}</span></>}
+                                    </p>
+                                  ))}
+                                </div>
+                              </div>
+                            </div>
+                          );
+                        }
+                        // worklog
+                        const w = item.data;
+                        return (
+                          <div key={`w-${w.id}`} className={`flex gap-3 py-3 ${i > 0 ? 'border-t border-gray-100 dark:border-gray-800' : ''}`}>
+                            {w.author.avatarUrls?.['24x24'] ? (
+                              <img src={w.author.avatarUrls['24x24']} alt="" className="w-8 h-8 rounded-full flex-shrink-0" />
+                            ) : (
+                              <div className="w-8 h-8 rounded-full bg-gray-200 dark:bg-gray-700 flex items-center justify-center text-xs font-semibold text-gray-500 flex-shrink-0">
+                                {w.author.displayName.charAt(0)}
+                              </div>
+                            )}
+                            <div className="flex-1 min-w-0">
+                              <div className="flex items-center gap-2 mb-1">
+                                <span className="text-sm font-medium text-gray-900 dark:text-gray-100">{w.author.displayName}</span>
+                                <span className="text-[10px] px-1.5 py-0.5 bg-green-50 dark:bg-green-900/30 text-green-600 dark:text-green-400 rounded">work log</span>
+                                <span className="text-xs text-gray-400" title={new Date(w.started).toLocaleString()}>{timeAgo(w.started)}</span>
+                              </div>
+                              <p className="text-xs text-gray-600 dark:text-gray-400">
+                                Logged <span className="font-medium text-gray-700 dark:text-gray-300">{w.timeSpent}</span>
+                                {' '}on {new Date(w.started).toLocaleDateString()}
+                              </p>
+                            </div>
+                          </div>
+                        );
+                      });
+                    })()}
+
+                    {/* Comments tab */}
+                    {activityTab === 'comments' && (
+                      <>
+                        {comments.map((c, i) => (
+                          <div key={c.id} className={`flex gap-3 py-3 ${i > 0 ? 'border-t border-gray-100 dark:border-gray-800' : ''}`}>
+                            {c.author.avatarUrls?.['24x24'] ? (
+                              <img src={c.author.avatarUrls['24x24']} alt="" className="w-8 h-8 rounded-full flex-shrink-0" />
+                            ) : (
+                              <div className="w-8 h-8 rounded-full bg-gray-200 dark:bg-gray-700 flex items-center justify-center text-xs font-semibold text-gray-500 flex-shrink-0">
+                                {c.author.displayName.charAt(0)}
+                              </div>
+                            )}
+                            <div className="flex-1 min-w-0">
+                              <div className="flex items-center gap-2 mb-1">
+                                <span className="text-sm font-medium text-gray-900 dark:text-gray-100">{c.author.displayName}</span>
+                                <span className="text-xs text-gray-400" title={new Date(c.created).toLocaleString()}>{timeAgo(c.created)}</span>
+                                {c.updated !== c.created && (
+                                  <span className="text-xs text-gray-400 italic" title={new Date(c.updated).toLocaleString()}>(edited)</span>
+                                )}
+                              </div>
+                              {editingCommentId === c.id ? (
+                                <div className="space-y-2">
+                                  <textarea
+                                    value={editCommentDraft}
+                                    onChange={(e) => setEditCommentDraft(e.target.value)}
+                                    rows={3}
+                                    autoFocus
+                                    className="w-full border border-gray-300 dark:border-gray-600 rounded-lg px-3 py-2 text-sm bg-white dark:bg-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500 resize-y"
+                                  />
+                                  <div className="flex gap-2">
+                                    <button onClick={() => handleEditComment(c.id)} disabled={savingComment} className="text-xs px-2.5 py-1 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:opacity-50">
+                                      {savingComment ? 'Saving...' : 'Save'}
+                                    </button>
+                                    <button onClick={() => setEditingCommentId(null)} className="text-xs px-2.5 py-1 text-gray-500 hover:text-gray-700">Cancel</button>
+                                  </div>
+                                </div>
+                              ) : (
+                                <div className="group">
+                                  <div className="adf-content text-sm text-gray-700 dark:text-gray-300 leading-relaxed" dangerouslySetInnerHTML={{ __html: adfToHtml(c.body) }} />
+                                  <div className="flex gap-3 mt-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                                    <button onClick={() => startEditComment(c)} className="text-xs text-gray-400 hover:text-blue-600">Edit</button>
+                                    <button onClick={() => handleDeleteComment(c.id)} className="text-xs text-gray-400 hover:text-red-500">Delete</button>
+                                  </div>
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                        ))}
+                        {comments.length === 0 && <p className="text-sm text-gray-400 italic py-2">No comments yet</p>}
+                      </>
+                    )}
+
+                    {/* History tab */}
+                    {activityTab === 'history' && (
+                      <>
+                        {changelog.map((ch, i) => (
+                          <div key={ch.id} className={`flex gap-3 py-3 ${i > 0 ? 'border-t border-gray-100 dark:border-gray-800' : ''}`}>
+                            {ch.author.avatarUrls?.['24x24'] ? (
+                              <img src={ch.author.avatarUrls['24x24']} alt="" className="w-8 h-8 rounded-full flex-shrink-0" />
+                            ) : (
+                              <div className="w-8 h-8 rounded-full bg-gray-200 dark:bg-gray-700 flex items-center justify-center text-xs font-semibold text-gray-500 flex-shrink-0">
+                                {ch.author.displayName.charAt(0)}
+                              </div>
+                            )}
+                            <div className="flex-1 min-w-0">
+                              <div className="flex items-center gap-2 mb-1">
+                                <span className="text-sm font-medium text-gray-900 dark:text-gray-100">{ch.author.displayName}</span>
+                                <span className="text-xs text-gray-400" title={new Date(ch.created).toLocaleString()}>{timeAgo(ch.created)}</span>
+                              </div>
+                              <div className="space-y-0.5">
+                                {ch.items.map((item, j) => (
+                                  <p key={j} className="text-xs text-gray-600 dark:text-gray-400">
+                                    Changed <span className="font-medium">{item.field}</span>
+                                    {item.fromString && <> from <span className="line-through text-gray-400">{item.fromString}</span></>}
+                                    {item.toString && <> to <span className="font-medium text-gray-700 dark:text-gray-300">{item.toString}</span></>}
+                                  </p>
+                                ))}
+                              </div>
+                            </div>
+                          </div>
+                        ))}
+                        {changelog.length === 0 && <p className="text-sm text-gray-400 italic py-2">No history</p>}
+                      </>
+                    )}
+
+                    {/* Work log tab */}
+                    {activityTab === 'worklog' && (
+                      <>
+                        {worklog.map((w, i) => (
+                          <div key={w.id} className={`flex gap-3 py-3 ${i > 0 ? 'border-t border-gray-100 dark:border-gray-800' : ''}`}>
+                            {w.author.avatarUrls?.['24x24'] ? (
+                              <img src={w.author.avatarUrls['24x24']} alt="" className="w-8 h-8 rounded-full flex-shrink-0" />
+                            ) : (
+                              <div className="w-8 h-8 rounded-full bg-gray-200 dark:bg-gray-700 flex items-center justify-center text-xs font-semibold text-gray-500 flex-shrink-0">
+                                {w.author.displayName.charAt(0)}
+                              </div>
+                            )}
+                            <div className="flex-1 min-w-0">
+                              <div className="flex items-center gap-2 mb-1">
+                                <span className="text-sm font-medium text-gray-900 dark:text-gray-100">{w.author.displayName}</span>
+                                <span className="text-xs text-gray-400" title={new Date(w.started).toLocaleString()}>{timeAgo(w.started)}</span>
+                              </div>
+                              <p className="text-xs text-gray-600 dark:text-gray-400">
+                                Logged <span className="font-medium text-gray-700 dark:text-gray-300">{w.timeSpent}</span>
+                                {' '}on {new Date(w.started).toLocaleDateString()}
+                              </p>
+                              {w.comment && (
+                                <div className="adf-content text-xs text-gray-500 mt-1" dangerouslySetInnerHTML={{ __html: adfToHtml(w.comment) }} />
+                              )}
+                            </div>
+                          </div>
+                        ))}
+                        {worklog.length === 0 && <p className="text-sm text-gray-400 italic py-2">No work logged</p>}
+                      </>
                     )}
                   </div>
                 </div>

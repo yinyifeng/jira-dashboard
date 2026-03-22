@@ -155,7 +155,7 @@ app.get('/api/issues', async (req, res) => {
     const body = {
       jql: query,
       maxResults: Number(maxResults),
-      fields: ['summary', 'status', 'priority', 'assignee', 'issuetype', 'project', 'updated', 'created', 'labels', 'resolutiondate', 'statuscategorychangedate', 'issuelinks', 'duedate'],
+      fields: ['summary', 'status', 'priority', 'assignee', 'issuetype', 'project', 'updated', 'created', 'labels', 'resolutiondate', 'statuscategorychangedate', 'issuelinks', 'duedate', 'subtasks'],
     };
     if (nextPageToken) {
       body.nextPageToken = nextPageToken;
@@ -338,6 +338,26 @@ app.delete('/api/issues/:key/comments/:commentId', async (req, res) => {
       return;
     }
     res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Get changelog for an issue
+app.get('/api/issues/:key/changelog', async (req, res) => {
+  try {
+    const data = await jiraFetch(`/issue/${req.params.key}/changelog?maxResults=50`);
+    res.json(data);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Get worklog for an issue
+app.get('/api/issues/:key/worklog', async (req, res) => {
+  try {
+    const data = await jiraFetch(`/issue/${req.params.key}/worklog`);
+    res.json(data);
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

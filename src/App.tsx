@@ -9,10 +9,8 @@ import SettingsPanel from './components/SettingsPanel';
 type ViewMode = 'table' | 'kanban';
 
 const PRESETS: { label: string; jql: string }[] = [
-  { label: 'My Issues', jql: 'assignee = currentUser() ORDER BY updated DESC' },
   { label: 'My Open Issues', jql: 'assignee = currentUser() AND resolution = Unresolved ORDER BY priority DESC' },
   { label: 'Recently Updated', jql: 'assignee = currentUser() AND updated >= -7d ORDER BY updated DESC' },
-  { label: 'All Unresolved', jql: 'resolution = Unresolved ORDER BY created DESC' },
 ];
 
 export default function App() {
@@ -175,6 +173,11 @@ export default function App() {
   };
 
   const handlePreset = (preset: typeof PRESETS[number]) => {
+    // Toggle: clicking the active preset deselects it
+    if (jql === preset.jql && !selectedBoard) {
+      applyCurrentFilters(selectedMembers, '', filterStatus, filterPriority, filterType);
+      return;
+    }
     setJqlInput(preset.jql);
     setJql(preset.jql);
     setSelectedBoard('');
@@ -336,12 +339,12 @@ export default function App() {
 
       <div className="max-w-screen-2xl mx-auto px-4 py-4">
         {/* Filters */}
-        <div className="flex flex-wrap items-center gap-2 mb-4">
+        <div className="flex items-center gap-1.5 mb-4">
           {/* Project */}
           <select
             value={selectedBoard}
             onChange={(e) => handleBoardFilter(e.target.value)}
-            className="text-xs border border-gray-300 dark:border-gray-600 rounded-lg px-2.5 py-1.5 bg-white dark:bg-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500"
+            className="text-xs border border-gray-300 dark:border-gray-600 rounded-lg px-2 py-1.5 bg-white dark:bg-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500"
           >
             <option value="">All projects</option>
             {boards.map((b) => (
@@ -353,9 +356,9 @@ export default function App() {
           <select
             value={filterStatus}
             onChange={(e) => handleFilterChange(e.target.value)}
-            className="text-xs border border-gray-300 dark:border-gray-600 rounded-lg px-2.5 py-1.5 bg-white dark:bg-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500"
+            className="text-xs border border-gray-300 dark:border-gray-600 rounded-lg px-2 py-1.5 bg-white dark:bg-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500"
           >
-            <option value="">All statuses</option>
+            <option value="">Status</option>
             {statusOptions.map((s) => (
               <option key={s.name} value={s.name}>{s.name}</option>
             ))}
@@ -363,9 +366,9 @@ export default function App() {
           <select
             value={filterPriority}
             onChange={(e) => handleFilterChange(undefined, e.target.value)}
-            className="text-xs border border-gray-300 dark:border-gray-600 rounded-lg px-2.5 py-1.5 bg-white dark:bg-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500"
+            className="text-xs border border-gray-300 dark:border-gray-600 rounded-lg px-2 py-1.5 bg-white dark:bg-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500"
           >
-            <option value="">All priorities</option>
+            <option value="">Priority</option>
             {priorityOptions.map((p) => (
               <option key={p.name} value={p.name}>{p.name}</option>
             ))}
@@ -373,22 +376,22 @@ export default function App() {
           <select
             value={filterType}
             onChange={(e) => handleFilterChange(undefined, undefined, e.target.value)}
-            className="text-xs border border-gray-300 dark:border-gray-600 rounded-lg px-2.5 py-1.5 bg-white dark:bg-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500"
+            className="text-xs border border-gray-300 dark:border-gray-600 rounded-lg px-2 py-1.5 bg-white dark:bg-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500"
           >
-            <option value="">All types</option>
+            <option value="">Type</option>
             {typeOptions.map((t) => (
               <option key={t} value={t}>{t}</option>
             ))}
           </select>
 
-          <div className="h-4 w-px bg-gray-300 dark:bg-gray-700" />
+          <div className="h-4 w-px bg-gray-300 dark:bg-gray-700 flex-shrink-0" />
 
           {/* Presets */}
           {PRESETS.map((p) => (
             <button
               key={p.label}
               onClick={() => handlePreset(p)}
-              className={`text-xs px-3 py-1.5 rounded-lg border transition-colors ${
+              className={`text-xs px-2.5 py-1.5 rounded-lg border transition-colors whitespace-nowrap ${
                 jql === p.jql && !selectedBoard
                   ? 'bg-blue-50 dark:bg-blue-900/30 border-blue-300 dark:border-blue-700 text-blue-700 dark:text-blue-300'
                   : 'border-gray-200 dark:border-gray-700 hover:bg-gray-100 dark:hover:bg-gray-800'
@@ -399,8 +402,8 @@ export default function App() {
           ))}
 
           {hasActiveFilters && (
-            <button onClick={clearAllFilters} className="text-xs text-gray-400 hover:text-gray-600 dark:hover:text-gray-300">
-              Clear all
+            <button onClick={clearAllFilters} className="text-xs text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 whitespace-nowrap">
+              Clear
             </button>
           )}
 
@@ -409,7 +412,7 @@ export default function App() {
             const team = teams[0];
             if (!team || team.members.length === 0) return null;
             return (
-              <>
+              <div className="flex items-center gap-2 ml-auto flex-shrink-0">
                 <div className="h-4 w-px bg-gray-300 dark:bg-gray-700" />
                 {team.members.map((m) => {
                   const isSelected = selectedMembers.size === 0 || selectedMembers.has(m.accountId);
@@ -446,7 +449,7 @@ export default function App() {
                     All
                   </button>
                 )}
-              </>
+              </div>
             );
           })()}
         </div>
@@ -506,6 +509,7 @@ export default function App() {
           issueKey={selectedIssueKey}
           onClose={() => setSelectedIssueKey(null)}
           onUpdated={() => loadIssues(jql)}
+          onSelectIssue={(key) => setSelectedIssueKey(key)}
         />
       )}
 
