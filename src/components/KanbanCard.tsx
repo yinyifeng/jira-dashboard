@@ -73,6 +73,28 @@ export default function KanbanCard({ issue, isDragging, isTransitioning, onSelec
           {issue.key}
         </span>
         <div className="flex items-center gap-1.5">
+          {(issue.fields as Record<string, unknown>).duedate && (() => {
+            const due = new Date((issue.fields as Record<string, unknown>).duedate as string);
+            const now = new Date();
+            now.setHours(0, 0, 0, 0);
+            const diffDays = Math.ceil((due.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
+            const isDone = issue.fields.status.statusCategory?.name === 'Done';
+            const isOverdue = diffDays < 0 && !isDone;
+            const isDueSoon = diffDays >= 0 && diffDays <= 1 && !isDone;
+            const color = isOverdue
+              ? 'text-red-600 dark:text-red-400'
+              : isDueSoon
+                ? 'text-orange-600 dark:text-orange-400'
+                : 'text-gray-500 dark:text-gray-400';
+            return (
+              <span className={`text-[10px] flex items-center gap-0.5 ${color}`} title={`Due: ${due.toLocaleDateString()}`}>
+                <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                </svg>
+                {due.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}
+              </span>
+            );
+          })()}
           {issue.fields.priority?.iconUrl && (
             <img src={issue.fields.priority.iconUrl} alt={issue.fields.priority.name} className="w-3.5 h-3.5" title={issue.fields.priority.name} />
           )}

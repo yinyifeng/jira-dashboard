@@ -1,9 +1,10 @@
 import { useState, useEffect, useCallback } from 'react';
-import { fetchIssues, checkAuth, logout, type JiraIssue } from './api';
+import { fetchIssues, checkAuth, logout, fetchStatuses, fetchPriorities, fetchTeams, type JiraIssue, type TeamConfig } from './api';
 import IssueTable from './components/IssueTable';
 import IssueDetailPanel from './components/IssueDetailPanel';
 import KanbanBoard from './components/KanbanBoard';
 import LoginPage from './components/LoginPage';
+import SettingsPanel from './components/SettingsPanel';
 
 type ViewMode = 'table' | 'kanban';
 
@@ -28,6 +29,19 @@ export default function App() {
   const [isLast, setIsLast] = useState(true);
   const [selectedIssueKey, setSelectedIssueKey] = useState<string | null>(null);
   const [viewMode, setViewMode] = useState<ViewMode>('table');
+  const [showSettings, setShowSettings] = useState(false);
+  const [teams, setTeams] = useState<TeamConfig[]>([]);
+  const [selectedMembers, setSelectedMembers] = useState<Set<string>>(new Set());
+
+  // Filter state
+  const [filterStatus, setFilterStatus] = useState('');
+  const [filterPriority, setFilterPriority] = useState('');
+  const [filterType, setFilterType] = useState('');
+
+  // Filter options
+  const [statusOptions, setStatusOptions] = useState<{ name: string }[]>([]);
+  const [priorityOptions, setPriorityOptions] = useState<{ name: string }[]>([]);
+  const [typeOptions, setTypeOptions] = useState<string[]>([]);
 
   const loadIssues = useCallback(async (query: string, token?: string) => {
     setLoading(true);
@@ -45,9 +59,89 @@ export default function App() {
     }
   }, []);
 
+  // Load filter options when authed
+  const loadFilterOptions = useCallback(async () => {
+    try {
+      const [statuses, priorities] = await Promise.all([
+        fetchStatuses(),
+        fetchPriorities(),
+      ]);
+      // Dedupe statuses by name
+      const seen = new Set<string>();
+      setStatusOptions(statuses.filter(s => { if (seen.has(s.name)) return false; seen.add(s.name); return true; }));
+      setPriorityOptions(priorities);
+    } catch {
+      // silently fail — filters just won't have options
+    }
+  }, []);
+
+  // Build JQL from filters
+  const buildJql = useCallback((board: string, status: string, priority: string, type: string) => {
+    const clauses: string[] = [];
+    if (board) clauses.push(`project = "${board}"`);
+    clauses.push('assignee = currentUser()');
+    if (status) clauses.push(`status = "${status}"`);
+    if (priority) clauses.push(`priority = "${priority}"`);
+    if (type) clauses.push(`issuetype = "${type}"`);
+    return clauses.join(' AND ') + ' ORDER BY updated DESC';
+  }, []);
+
+  // Build JQL with team members
+  const buildTeamJql = useCallback((
+    teamMembers: { accountId: string }[],
+    memberFilter: Set<string>,
+    board: string, status: string, priority: string, type: string,
+  ) => {
+    const clauses: string[] = [];
+    if (board) clauses.push(`project = "${board}"`);
+    const members = memberFilter.size > 0
+      ? teamMembers.filter((m) => memberFilter.has(m.accountId))
+      : teamMembers;
+    if (members.length > 0) {
+      const ids = members.map((m) => `"${m.accountId}"`).join(', ');
+      clauses.push(`assignee in (${ids})`);
+    }
+    if (status) clauses.push(`status = "${status}"`);
+    if (priority) clauses.push(`priority = "${priority}"`);
+    if (type) clauses.push(`issuetype = "${type}"`);
+    return clauses.join(' AND ') + ' ORDER BY updated DESC';
+  }, []);
+
   useEffect(() => {
     checkAuth().then(setAuthed);
   }, []);
+
+  // Load filter options and teams once authed
+  useEffect(() => {
+    if (authed) {
+      loadFilterOptions();
+      fetchTeams().then((t) => {
+        setTeams(t);
+        // Auto-select current user if found in first team
+        if (t.length > 0 && selectedMembers.size === 0) {
+          const yinyi = t[0].members.find((m) => m.displayName === 'Yinyi Feng');
+          if (yinyi) {
+            const initial = new Set([yinyi.accountId]);
+            setSelectedMembers(initial);
+            // Update JQL to filter by this user
+            const newJql = buildTeamJql(t[0].members, initial, '', '', '', '');
+            setJql(newJql);
+            setJqlInput(newJql);
+          }
+        }
+      }).catch(() => {});
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [authed, loadFilterOptions]);
+
+  // Derive issue type options from fetched issues
+  useEffect(() => {
+    const types = new Set<string>();
+    for (const issue of issues) {
+      if (issue.fields.issuetype?.name) types.add(issue.fields.issuetype.name);
+    }
+    setTypeOptions(Array.from(types).sort());
+  }, [issues]);
 
   // Derive boards from fetched issues — only update when not filtering by a specific board
   const issuesKey = issues.map(i => i.fields.project?.key).join(',');
@@ -84,19 +178,67 @@ export default function App() {
     setJqlInput(preset.jql);
     setJql(preset.jql);
     setSelectedBoard('');
+    setFilterStatus('');
+    setFilterPriority('');
+    setFilterType('');
+    setSelectedMembers(new Set());
   };
 
   const handleBoardFilter = (boardKey: string) => {
     setSelectedBoard(boardKey);
-    if (boardKey) {
-      const newJql = `project = "${boardKey}" AND assignee = currentUser() ORDER BY updated DESC`;
+    applyCurrentFilters(selectedMembers, boardKey, filterStatus, filterPriority, filterType);
+  };
+
+  const applyCurrentFilters = (
+    members: Set<string>,
+    board: string, status: string, priority: string, type: string,
+  ) => {
+    const team = teams[0];
+    if (team && team.members.length > 0) {
+      const newJql = buildTeamJql(team.members, members, board, status, priority, type);
       setJqlInput(newJql);
       setJql(newJql);
-    } else {
-      setJqlInput(PRESETS[0].jql);
-      setJql(PRESETS[0].jql);
+      return;
     }
+    const newJql = buildJql(board, status, priority, type);
+    setJqlInput(newJql);
+    setJql(newJql);
   };
+
+  const handleFilterChange = (
+    newStatus?: string, newPriority?: string, newType?: string,
+  ) => {
+    const s = newStatus ?? filterStatus;
+    const p = newPriority ?? filterPriority;
+    const t = newType ?? filterType;
+    if (newStatus !== undefined) setFilterStatus(s);
+    if (newPriority !== undefined) setFilterPriority(p);
+    if (newType !== undefined) setFilterType(t);
+    applyCurrentFilters(selectedMembers, selectedBoard, s, p, t);
+  };
+
+  const handleToggleMember = (accountId: string) => {
+    const next = new Set(selectedMembers);
+    if (next.has(accountId)) {
+      next.delete(accountId);
+    } else {
+      next.add(accountId);
+    }
+    setSelectedMembers(next);
+    applyCurrentFilters(next, selectedBoard, filterStatus, filterPriority, filterType);
+  };
+
+  const clearAllFilters = () => {
+    setFilterStatus('');
+    setFilterPriority('');
+    setFilterType('');
+    setSelectedMembers(new Set());
+    setSelectedBoard('');
+    setJqlInput(PRESETS[0].jql);
+    setJql(PRESETS[0].jql);
+  };
+
+  const hasActiveFilters = !!(filterStatus || filterPriority || filterType);
 
   const handleNextPage = () => {
     if (nextPageToken) {
@@ -173,6 +315,16 @@ export default function App() {
               {loading ? 'Loading...' : 'Refresh'}
             </button>
             <button
+              onClick={() => setShowSettings(true)}
+              className="text-sm px-3 py-1.5 border border-gray-300 dark:border-gray-600 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"
+              title="Settings"
+            >
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.066 2.573c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.573 1.066c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.066-2.573c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+              </svg>
+            </button>
+            <button
               onClick={handleLogout}
               className="text-sm px-3 py-1.5 border border-gray-300 dark:border-gray-600 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"
             >
@@ -184,51 +336,119 @@ export default function App() {
 
       <div className="max-w-screen-2xl mx-auto px-4 py-4">
         {/* Filters */}
-        <div className="flex flex-col gap-3 mb-4">
-          {/* Board selector + presets */}
-          <div className="flex flex-wrap items-center gap-2">
-            <select
-              value={selectedBoard}
-              onChange={(e) => handleBoardFilter(e.target.value)}
-              className="text-sm border border-gray-300 dark:border-gray-600 rounded-lg px-3 py-1.5 bg-white dark:bg-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500"
-            >
-              <option value="">All projects</option>
-              {boards.map((b) => (
-                <option key={b.key} value={b.key}>{b.name} ({b.key})</option>
-              ))}
-            </select>
-            <div className="h-4 w-px bg-gray-300 dark:bg-gray-700" />
-            {PRESETS.map((p) => (
-              <button
-                key={p.label}
-                onClick={() => handlePreset(p)}
-                className={`text-xs px-3 py-1.5 rounded-lg border transition-colors ${
-                  jql === p.jql && !selectedBoard
-                    ? 'bg-blue-50 dark:bg-blue-900/30 border-blue-300 dark:border-blue-700 text-blue-700 dark:text-blue-300'
-                    : 'border-gray-200 dark:border-gray-700 hover:bg-gray-100 dark:hover:bg-gray-800'
-                }`}
-              >
-                {p.label}
-              </button>
+        <div className="flex flex-wrap items-center gap-2 mb-4">
+          {/* Project */}
+          <select
+            value={selectedBoard}
+            onChange={(e) => handleBoardFilter(e.target.value)}
+            className="text-xs border border-gray-300 dark:border-gray-600 rounded-lg px-2.5 py-1.5 bg-white dark:bg-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500"
+          >
+            <option value="">All projects</option>
+            {boards.map((b) => (
+              <option key={b.key} value={b.key}>{b.name} ({b.key})</option>
             ))}
-          </div>
+          </select>
 
-          {/* JQL search */}
-          <form onSubmit={handleSearch} className="flex gap-2">
-            <input
-              type="text"
-              value={jqlInput}
-              onChange={(e) => setJqlInput(e.target.value)}
-              placeholder="Enter JQL query..."
-              className="flex-1 text-sm border border-gray-300 dark:border-gray-600 rounded-lg px-3 py-1.5 bg-white dark:bg-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500"
-            />
+          {/* Status / Priority / Type */}
+          <select
+            value={filterStatus}
+            onChange={(e) => handleFilterChange(e.target.value)}
+            className="text-xs border border-gray-300 dark:border-gray-600 rounded-lg px-2.5 py-1.5 bg-white dark:bg-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500"
+          >
+            <option value="">All statuses</option>
+            {statusOptions.map((s) => (
+              <option key={s.name} value={s.name}>{s.name}</option>
+            ))}
+          </select>
+          <select
+            value={filterPriority}
+            onChange={(e) => handleFilterChange(undefined, e.target.value)}
+            className="text-xs border border-gray-300 dark:border-gray-600 rounded-lg px-2.5 py-1.5 bg-white dark:bg-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500"
+          >
+            <option value="">All priorities</option>
+            {priorityOptions.map((p) => (
+              <option key={p.name} value={p.name}>{p.name}</option>
+            ))}
+          </select>
+          <select
+            value={filterType}
+            onChange={(e) => handleFilterChange(undefined, undefined, e.target.value)}
+            className="text-xs border border-gray-300 dark:border-gray-600 rounded-lg px-2.5 py-1.5 bg-white dark:bg-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500"
+          >
+            <option value="">All types</option>
+            {typeOptions.map((t) => (
+              <option key={t} value={t}>{t}</option>
+            ))}
+          </select>
+
+          <div className="h-4 w-px bg-gray-300 dark:bg-gray-700" />
+
+          {/* Presets */}
+          {PRESETS.map((p) => (
             <button
-              type="submit"
-              className="text-sm px-4 py-1.5 bg-gray-900 dark:bg-gray-100 text-white dark:text-gray-900 rounded-lg hover:opacity-90 transition-opacity"
+              key={p.label}
+              onClick={() => handlePreset(p)}
+              className={`text-xs px-3 py-1.5 rounded-lg border transition-colors ${
+                jql === p.jql && !selectedBoard
+                  ? 'bg-blue-50 dark:bg-blue-900/30 border-blue-300 dark:border-blue-700 text-blue-700 dark:text-blue-300'
+                  : 'border-gray-200 dark:border-gray-700 hover:bg-gray-100 dark:hover:bg-gray-800'
+              }`}
             >
-              Search
+              {p.label}
             </button>
-          </form>
+          ))}
+
+          {hasActiveFilters && (
+            <button onClick={clearAllFilters} className="text-xs text-gray-400 hover:text-gray-600 dark:hover:text-gray-300">
+              Clear all
+            </button>
+          )}
+
+          {/* Team member avatars */}
+          {(() => {
+            const team = teams[0];
+            if (!team || team.members.length === 0) return null;
+            return (
+              <>
+                <div className="h-4 w-px bg-gray-300 dark:bg-gray-700" />
+                {team.members.map((m) => {
+                  const isSelected = selectedMembers.size === 0 || selectedMembers.has(m.accountId);
+                  const initials = m.displayName.split(' ').map((n) => n[0]).join('').slice(0, 2).toUpperCase();
+                  return (
+                    <button
+                      key={m.accountId}
+                      onClick={() => handleToggleMember(m.accountId)}
+                      title={m.displayName}
+                      className={`relative rounded-full transition-all ${
+                        isSelected
+                          ? 'ring-2 ring-blue-500 ring-offset-1 dark:ring-offset-gray-950'
+                          : 'opacity-40 hover:opacity-70'
+                      }`}
+                    >
+                      {m.avatarUrl ? (
+                        <img src={m.avatarUrl} alt={m.displayName} className="w-7 h-7 rounded-full" />
+                      ) : (
+                        <div className="w-7 h-7 rounded-full bg-blue-500 flex items-center justify-center text-white text-[10px] font-bold">
+                          {initials}
+                        </div>
+                      )}
+                    </button>
+                  );
+                })}
+                {selectedMembers.size > 0 && (
+                  <button
+                    onClick={() => {
+                      setSelectedMembers(new Set());
+                      applyCurrentFilters(new Set(), selectedBoard, filterStatus, filterPriority, filterType);
+                    }}
+                    className="text-xs text-gray-400 hover:text-gray-600 dark:hover:text-gray-300"
+                  >
+                    All
+                  </button>
+                )}
+              </>
+            );
+          })()}
         </div>
 
         {/* Error */}
@@ -286,6 +506,14 @@ export default function App() {
           issueKey={selectedIssueKey}
           onClose={() => setSelectedIssueKey(null)}
           onUpdated={() => loadIssues(jql)}
+        />
+      )}
+
+      {/* Settings */}
+      {showSettings && (
+        <SettingsPanel
+          onClose={() => setShowSettings(false)}
+          onTeamsChanged={(updated) => setTeams(updated)}
         />
       )}
     </div>

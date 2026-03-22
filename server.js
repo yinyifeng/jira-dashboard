@@ -1,6 +1,8 @@
 import express from 'express';
 import cors from 'cors';
 import crypto from 'crypto';
+import fs from 'fs';
+import path from 'path';
 
 // Secrets are injected by Doppler via `doppler run` — no .env needed.
 // Run: doppler run -- node server.js
@@ -153,7 +155,7 @@ app.get('/api/issues', async (req, res) => {
     const body = {
       jql: query,
       maxResults: Number(maxResults),
-      fields: ['summary', 'status', 'priority', 'assignee', 'issuetype', 'project', 'updated', 'created', 'labels', 'resolutiondate', 'statuscategorychangedate'],
+      fields: ['summary', 'status', 'priority', 'assignee', 'issuetype', 'project', 'updated', 'created', 'labels', 'resolutiondate', 'statuscategorychangedate', 'issuelinks', 'duedate'],
     };
     if (nextPageToken) {
       body.nextPageToken = nextPageToken;
@@ -350,6 +352,125 @@ app.get('/api/users', async (req, res) => {
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
+});
+
+// Search groups
+app.get('/api/groups', async (req, res) => {
+  try {
+    const { query = '' } = req.query;
+    const data = await jiraFetch(`/groups/picker?query=${encodeURIComponent(query)}&maxResults=25`);
+    res.json(data.groups || []);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Get group members
+app.get('/api/groups/:groupname/members', async (req, res) => {
+  try {
+    const data = await jiraFetch(`/group/member?groupname=${encodeURIComponent(req.params.groupname)}&maxResults=50`);
+    res.json(data.values || []);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Get issue link types
+app.get('/api/issuelinktypes', async (req, res) => {
+  try {
+    const data = await jiraFetch('/issueLinkType');
+    res.json(data.issueLinkTypes || []);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Create issue link
+app.post('/api/issuelinks', async (req, res) => {
+  try {
+    const url = `${JIRA_BASE_URL}/rest/api/3/issueLink`;
+    const jiraRes = await fetch(url, {
+      method: 'POST',
+      headers: {
+        Authorization: authHeader,
+        'Content-Type': 'application/json',
+        Accept: 'application/json',
+      },
+      body: JSON.stringify(req.body),
+    });
+    if (!jiraRes.ok) {
+      const text = await jiraRes.text();
+      res.status(jiraRes.status).json({ error: text });
+      return;
+    }
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Delete issue link
+app.delete('/api/issuelinks/:linkId', async (req, res) => {
+  try {
+    const url = `${JIRA_BASE_URL}/rest/api/3/issueLink/${req.params.linkId}`;
+    const jiraRes = await fetch(url, {
+      method: 'DELETE',
+      headers: { Authorization: authHeader, Accept: 'application/json' },
+    });
+    if (!jiraRes.ok) {
+      const text = await jiraRes.text();
+      res.status(jiraRes.status).json({ error: text });
+      return;
+    }
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Get labels
+app.get('/api/labels', async (req, res) => {
+  try {
+    const data = await jiraFetch('/label?maxResults=200');
+    res.json(data.values || []);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// --- Shared team configs (persisted to file) ---
+const TEAMS_FILE = path.join(process.cwd(), 'teams.json');
+
+function loadTeamsFromFile() {
+  try {
+    if (fs.existsSync(TEAMS_FILE)) {
+      return JSON.parse(fs.readFileSync(TEAMS_FILE, 'utf-8'));
+    }
+  } catch (err) {
+    console.error('Error reading teams file:', err.message);
+  }
+  return [];
+}
+
+function saveTeamsToFile(teams) {
+  try {
+    fs.writeFileSync(TEAMS_FILE, JSON.stringify(teams, null, 2));
+  } catch (err) {
+    console.error('Error writing teams file:', err.message);
+  }
+}
+
+app.get('/api/teams', (req, res) => {
+  res.json(loadTeamsFromFile());
+});
+
+app.put('/api/teams', (req, res) => {
+  const teams = req.body;
+  if (!Array.isArray(teams)) {
+    return res.status(400).json({ error: 'Expected array of teams' });
+  }
+  saveTeamsToFile(teams);
+  res.json({ success: true });
 });
 
 const PORT = process.env.PORT || 3001;

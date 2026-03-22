@@ -5,6 +5,10 @@ import {
   fetchPriorities,
   fetchIssueTypes,
   fetchTransitions,
+  fetchIssueLinkTypes,
+  fetchIssues,
+  createIssueLink,
+  deleteIssueLink,
   transitionIssue,
   searchUsers,
   addComment,
@@ -13,6 +17,8 @@ import {
   updateIssue,
   type JiraIssue,
   type JiraComment,
+  type IssueLink,
+  type IssueLinkType,
 } from '../api';
 import StatusBadge from './StatusBadge';
 
@@ -185,6 +191,16 @@ export default function IssueDetailPanel({ issueKey, onClose, onUpdated }: Issue
   const [editingField, setEditingField] = useState<string | null>(null);
   const [fieldDraft, setFieldDraft] = useState('');
   const [savingField, setSavingField] = useState(false);
+
+  // Linked issues
+  const [addingLink, setAddingLink] = useState(false);
+  const [linkTypes, setLinkTypes] = useState<IssueLinkType[]>([]);
+  const [selectedLinkType, setSelectedLinkType] = useState('');
+  const [linkDirection, setLinkDirection] = useState<'outward' | 'inward'>('outward');
+  const [linkSearchQuery, setLinkSearchQuery] = useState('');
+  const [linkSearchResults, setLinkSearchResults] = useState<JiraIssue[]>([]);
+  const [linkSearching, setLinkSearching] = useState(false);
+  const [savingLink, setSavingLink] = useState(false);
 
   const load = async () => {
     setLoading(true);
@@ -428,6 +444,61 @@ export default function IssueDetailPanel({ issueKey, onClose, onUpdated }: Issue
     }
   };
 
+  // Linked issues handlers
+  const handleOpenAddLink = async () => {
+    setAddingLink(true);
+    if (linkTypes.length === 0) {
+      const types = await fetchIssueLinkTypes();
+      setLinkTypes(types);
+      if (types.length > 0) {
+        setSelectedLinkType(types[0].name);
+      }
+    }
+  };
+
+  const handleSearchLinkedIssue = async (query: string) => {
+    setLinkSearchQuery(query);
+    if (query.length < 2) { setLinkSearchResults([]); return; }
+    setLinkSearching(true);
+    try {
+      const jql = `key = "${query}" OR summary ~ "${query}" ORDER BY updated DESC`;
+      const data = await fetchIssues(jql, undefined, 8);
+      setLinkSearchResults(data.issues.filter(i => i.key !== issueKey));
+    } catch {
+      setLinkSearchResults([]);
+    } finally {
+      setLinkSearching(false);
+    }
+  };
+
+  const handleCreateLink = async (targetKey: string) => {
+    setSavingLink(true);
+    try {
+      if (linkDirection === 'outward') {
+        await createIssueLink(selectedLinkType, issueKey, targetKey);
+      } else {
+        await createIssueLink(selectedLinkType, targetKey, issueKey);
+      }
+      setAddingLink(false);
+      setLinkSearchQuery('');
+      setLinkSearchResults([]);
+      load();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Failed to create link');
+    } finally {
+      setSavingLink(false);
+    }
+  };
+
+  const handleDeleteLink = async (linkId: string) => {
+    try {
+      await deleteIssueLink(linkId);
+      load();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Failed to delete link');
+    }
+  };
+
   const timeAgo = (dateStr: string) => {
     const diff = Date.now() - new Date(dateStr).getTime();
     const mins = Math.floor(diff / 60000);
@@ -493,9 +564,14 @@ export default function IssueDetailPanel({ issueKey, onClose, onUpdated }: Issue
                 </span>
               )}
               <span className="text-gray-300 dark:text-gray-600">/</span>
-              <span className="font-mono text-blue-600 dark:text-blue-400 font-semibold">
+              <a
+                href={issue?.self ? `${new URL(issue.self).origin}/browse/${issueKey}` : `#`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="font-mono text-blue-600 dark:text-blue-400 font-semibold hover:underline"
+              >
                 {issueKey}
-              </span>
+              </a>
             </div>
             <button
               onClick={onClose}
@@ -598,6 +674,138 @@ export default function IssueDetailPanel({ issueKey, onClose, onUpdated }: Issue
                       )}
                     </div>
                   )}
+                </div>
+
+                {/* Linked Issues */}
+                <div>
+                  <div className="flex items-center justify-between mb-2">
+                    <h3 className="text-xs font-semibold uppercase tracking-wider text-gray-400">
+                      Linked Issues
+                      {(() => {
+                        const links = (issue.fields.issuelinks || []) as IssueLink[];
+                        return links.length > 0 ? <span className="text-gray-300 dark:text-gray-600"> ({links.length})</span> : null;
+                      })()}
+                    </h3>
+                    <button
+                      onClick={handleOpenAddLink}
+                      className="text-xs text-blue-600 dark:text-blue-400 hover:underline"
+                    >
+                      + Link issue
+                    </button>
+                  </div>
+
+                  {/* Add link form */}
+                  {addingLink && (
+                    <div className="mb-3 p-3 bg-gray-50 dark:bg-gray-800/50 rounded-lg border border-gray-200 dark:border-gray-700 space-y-2">
+                      <div className="flex gap-2">
+                        <select
+                          value={`${selectedLinkType}:${linkDirection}`}
+                          onChange={(e) => {
+                            const [type, dir] = e.target.value.split(':');
+                            setSelectedLinkType(type);
+                            setLinkDirection(dir as 'outward' | 'inward');
+                          }}
+                          className="text-xs border border-gray-300 dark:border-gray-600 rounded px-2 py-1.5 bg-white dark:bg-gray-800 flex-1"
+                        >
+                          {linkTypes.map((lt) => (
+                            <optgroup key={lt.id} label={lt.name}>
+                              <option value={`${lt.name}:outward`}>{lt.outward}</option>
+                              <option value={`${lt.name}:inward`}>{lt.inward}</option>
+                            </optgroup>
+                          ))}
+                        </select>
+                      </div>
+                      <input
+                        type="text"
+                        value={linkSearchQuery}
+                        onChange={(e) => handleSearchLinkedIssue(e.target.value)}
+                        placeholder="Search issue key or summary..."
+                        autoFocus
+                        className="w-full text-xs border border-gray-300 dark:border-gray-600 rounded px-2.5 py-1.5 bg-white dark:bg-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      />
+                      {linkSearching && <div className="text-xs text-gray-400 animate-pulse">Searching...</div>}
+                      {linkSearchResults.length > 0 && (
+                        <div className="max-h-40 overflow-y-auto border border-gray-200 dark:border-gray-700 rounded bg-white dark:bg-gray-800">
+                          {linkSearchResults.map((r) => (
+                            <button
+                              key={r.key}
+                              onClick={() => handleCreateLink(r.key)}
+                              disabled={savingLink}
+                              className="w-full text-left px-2.5 py-1.5 text-xs hover:bg-gray-100 dark:hover:bg-gray-700 flex items-center gap-2 disabled:opacity-50"
+                            >
+                              <span className="font-mono text-blue-600 dark:text-blue-400 flex-shrink-0">{r.key}</span>
+                              <span className="truncate text-gray-700 dark:text-gray-300">{r.fields.summary}</span>
+                            </button>
+                          ))}
+                        </div>
+                      )}
+                      <button onClick={() => { setAddingLink(false); setLinkSearchQuery(''); setLinkSearchResults([]); }} className="text-xs text-gray-400 hover:underline">
+                        Cancel
+                      </button>
+                    </div>
+                  )}
+
+                  {/* Existing links */}
+                  {(() => {
+                    const links = (issue.fields.issuelinks || []) as IssueLink[];
+                    if (links.length === 0 && !addingLink) {
+                      return <p className="text-xs text-gray-400 italic">No linked issues</p>;
+                    }
+                    // Group by relationship label
+                    const grouped = new Map<string, { link: IssueLink; targetKey: string; targetSummary: string; targetStatus: { name: string; statusCategory?: { name: string; colorName: string } }; targetType?: { name: string; iconUrl: string } }[]>();
+                    for (const link of links) {
+                      if (link.outwardIssue) {
+                        const label = link.type.outward;
+                        if (!grouped.has(label)) grouped.set(label, []);
+                        grouped.get(label)!.push({
+                          link,
+                          targetKey: link.outwardIssue.key,
+                          targetSummary: link.outwardIssue.fields?.summary || '',
+                          targetStatus: link.outwardIssue.fields?.status || { name: 'Unknown' },
+                          targetType: link.outwardIssue.fields?.issuetype,
+                        });
+                      }
+                      if (link.inwardIssue) {
+                        const label = link.type.inward;
+                        if (!grouped.has(label)) grouped.set(label, []);
+                        grouped.get(label)!.push({
+                          link,
+                          targetKey: link.inwardIssue.key,
+                          targetSummary: link.inwardIssue.fields?.summary || '',
+                          targetStatus: link.inwardIssue.fields?.status || { name: 'Unknown' },
+                          targetType: link.inwardIssue.fields?.issuetype,
+                        });
+                      }
+                    }
+                    return (
+                      <div className="space-y-2">
+                        {Array.from(grouped.entries()).map(([label, items]) => (
+                          <div key={label}>
+                            <span className="text-[10px] font-semibold uppercase tracking-wider text-gray-400">{label}</span>
+                            <div className="mt-1 space-y-1">
+                              {items.map(({ link, targetKey, targetSummary, targetStatus, targetType }) => (
+                                <div key={link.id} className="group flex items-center gap-2 px-2 py-1.5 rounded hover:bg-gray-50 dark:hover:bg-gray-800/50 transition-colors">
+                                  {targetType?.iconUrl && <img src={targetType.iconUrl} alt="" className="w-3.5 h-3.5 flex-shrink-0" />}
+                                  <span className="font-mono text-xs text-blue-600 dark:text-blue-400 flex-shrink-0">{targetKey}</span>
+                                  <span className="text-xs text-gray-700 dark:text-gray-300 truncate flex-1">{targetSummary}</span>
+                                  <StatusBadge name={targetStatus.name} colorName={targetStatus.statusCategory?.colorName || 'blue-gray'} />
+                                  <button
+                                    onClick={() => handleDeleteLink(link.id)}
+                                    className="opacity-0 group-hover:opacity-100 text-gray-400 hover:text-red-500 transition-opacity ml-1"
+                                    title="Remove link"
+                                  >
+                                    <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                                    </svg>
+                                  </button>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    );
+                  })()}
                 </div>
 
                 {/* Activity / Comments */}

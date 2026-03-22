@@ -70,6 +70,7 @@ export async function checkAuth(): Promise<boolean> {
 export interface JiraIssue {
   id: string;
   key: string;
+  self?: string;
   fields: {
     summary: string;
     status: { name: string; statusCategory: { name: string; colorName: string } };
@@ -146,7 +147,7 @@ export async function fetchIssueTypes(projectKey?: string): Promise<{ id: string
   return res.json();
 }
 
-export async function searchUsers(query: string): Promise<{ accountId: string; displayName: string }[]> {
+export async function searchUsers(query: string): Promise<{ accountId: string; displayName: string; avatarUrls?: Record<string, string> }[]> {
   const res = await authFetch(`${API_BASE}/api/users?query=${encodeURIComponent(query)}`);
   if (!res.ok) throw new Error('Failed to search users');
   return res.json();
@@ -157,6 +158,92 @@ export async function fetchBoards(): Promise<{ id: string; name: string; key?: s
   if (!res.ok) throw new Error('Failed to fetch boards');
   const data = await res.json();
   return data.boards;
+}
+
+export async function fetchStatuses(): Promise<{ id: string; name: string; statusCategory: { name: string; colorName: string } }[]> {
+  const res = await authFetch(`${API_BASE}/api/statuses`);
+  if (!res.ok) throw new Error('Failed to fetch statuses');
+  return res.json();
+}
+
+export async function fetchLabels(): Promise<string[]> {
+  const res = await authFetch(`${API_BASE}/api/labels`);
+  if (!res.ok) throw new Error('Failed to fetch labels');
+  return res.json();
+}
+
+export async function searchGroups(query: string): Promise<{ name: string; groupId: string }[]> {
+  const res = await authFetch(`${API_BASE}/api/groups?query=${encodeURIComponent(query)}`);
+  if (!res.ok) throw new Error('Failed to search groups');
+  return res.json();
+}
+
+export interface IssueLink {
+  id: string;
+  type: { id: string; name: string; inward: string; outward: string };
+  inwardIssue?: { key: string; fields: { summary: string; status: { name: string; statusCategory: { name: string; colorName: string } }; issuetype: { name: string; iconUrl: string } } };
+  outwardIssue?: { key: string; fields: { summary: string; status: { name: string; statusCategory: { name: string; colorName: string } }; issuetype: { name: string; iconUrl: string } } };
+}
+
+export interface IssueLinkType {
+  id: string;
+  name: string;
+  inward: string;
+  outward: string;
+}
+
+export async function fetchIssueLinkTypes(): Promise<IssueLinkType[]> {
+  const res = await authFetch(`${API_BASE}/api/issuelinktypes`);
+  if (!res.ok) throw new Error('Failed to fetch link types');
+  return res.json();
+}
+
+export async function createIssueLink(typeName: string, inwardKey: string, outwardKey: string): Promise<void> {
+  const res = await authFetch(`${API_BASE}/api/issuelinks`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      type: { name: typeName },
+      inwardIssue: { key: inwardKey },
+      outwardIssue: { key: outwardKey },
+    }),
+  });
+  if (!res.ok) {
+    const data = await res.json();
+    throw new Error(data.error || 'Failed to create link');
+  }
+}
+
+export async function deleteIssueLink(linkId: string): Promise<void> {
+  const res = await authFetch(`${API_BASE}/api/issuelinks/${linkId}`, { method: 'DELETE' });
+  if (!res.ok) throw new Error('Failed to delete link');
+}
+
+// --- Shared teams ---
+export interface TeamMember {
+  accountId: string;
+  displayName: string;
+  avatarUrl?: string;
+}
+
+export interface TeamConfig {
+  name: string;
+  members: TeamMember[];
+}
+
+export async function fetchTeams(): Promise<TeamConfig[]> {
+  const res = await authFetch(`${API_BASE}/api/teams`);
+  if (!res.ok) throw new Error('Failed to fetch teams');
+  return res.json();
+}
+
+export async function saveTeams(teams: TeamConfig[]): Promise<void> {
+  const res = await authFetch(`${API_BASE}/api/teams`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(teams),
+  });
+  if (!res.ok) throw new Error('Failed to save teams');
 }
 
 export interface JiraComment {

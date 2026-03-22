@@ -1,0 +1,42 @@
+[
+  {
+    "name": "IT",
+    "members": [
+      {
+        "accountId": "712020:ab99989f-981b-4f06-a559-dd51e7b580df",
+        "displayName": "Yinyi Feng",
+        "avatarUrl": "https://secure.gravatar.com/avatar/9a8128b041182c2f37459fb8d28195f4?d=https%3A%2F%2Favatar-management--avatars.us-west-2.prod.public.atl-paas.net%2Finitials%2FYF-6.png"
+      },
+      {
+        "accountId": "712020:c72de684-63e0-4624-982f-a9ed55c0ab8c",
+        "displayName": "Richard Plotka",
+        "avatarUrl": "https://avatar-management--avatars.us-west-2.prod.public.atl-paas.net/712020:c72de684-63e0-4624-982f-a9ed55c0ab8c/44e5b8f4-d1a0-4ba3-96c1-88d890042f49/32"
+      },
+      {
+        "accountId": "712020:d9717f49-accf-4059-a2ea-1b7677468ecc",
+        "displayName": "Tom Zhang",
+        "avatarUrl": "https://secure.gravatar.com/avatar/ad81bc381453900d8ba812636cfa0671?d=https%3A%2F%2Favatar-management--avatars.us-west-2.prod.public.atl-paas.net%2Finitials%2FTZ-1.png"
+      },
+      {
+        "accountId": "712020:ba9ed14b-1b56-4b3f-9dd9-47da8cad32d1",
+        "displayName": "Ana Chen",
+        "avatarUrl": "https://secure.gravatar.com/avatar/dc01c884ea97b6879b38c3cbc45fe8a2?d=https%3A%2F%2Favatar-management--avatars.us-west-2.prod.public.atl-paas.net%2Finitials%2FAC-5.png"
+      },
+      {
+        "accountId": "712020:282d0fb3-a101-4393-bbe4-52c91ac12b66",
+        "displayName": "César Pérez",
+        "avatarUrl": "https://avatar-management--avatars.us-west-2.prod.public.atl-paas.net/712020:282d0fb3-a101-4393-bbe4-52c91ac12b66/cbbca716-719e-4cdf-89f6-c4d1f12f088e/32"
+      },
+      {
+        "accountId": "70121:1b8c337e-e93d-4c31-ba17-eeee791194ae",
+        "displayName": "William Liu",
+        "avatarUrl": "https://secure.gravatar.com/avatar/0727e90612648a7d6dffc45cc135f8c5?d=https%3A%2F%2Favatar-management--avatars.us-west-2.prod.public.atl-paas.net%2Finitials%2FWL-0.png"
+      },
+      {
+        "accountId": "712020:9cac3d0d-74ac-4692-9a0a-13bbaeda6387",
+        "displayName": "KenY Y",
+        "avatarUrl": "https://secure.gravatar.com/avatar/7f922485d4a44b0d744f9c745244b94e?d=https%3A%2F%2Favatar-management--avatars.us-west-2.prod.public.atl-paas.net%2Finitials%2FKY-0.png"
+      }
+    ]
+  }
+]
