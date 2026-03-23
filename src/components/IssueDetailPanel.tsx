@@ -20,6 +20,7 @@ import {
   uploadAttachments,
   deleteAttachment,
   getAttachmentProxyUrl,
+  proxyImageUrl,
   addWorklog,
   type JiraIssue,
   type JiraComment,
@@ -43,7 +44,7 @@ function Avatar({ author, size = 'md' }: { author: { displayName: string; avatar
   const px = size === 'sm' ? 'w-6 h-6' : 'w-8 h-8';
   const textSize = size === 'sm' ? 'text-[9px]' : 'text-xs';
   if (author.avatarUrls?.['24x24']) {
-    return <img src={author.avatarUrls['24x24']} alt="" className={`${px} rounded-full flex-shrink-0`} />;
+    return <img src={proxyImageUrl(author.avatarUrls['24x24'])} alt="" className={`${px} rounded-full flex-shrink-0`} />;
   }
   return (
     <div className={`${px} rounded-full bg-gray-200 dark:bg-gray-700 flex items-center justify-center ${textSize} font-semibold text-gray-500 flex-shrink-0`}>
@@ -856,7 +857,7 @@ export default function IssueDetailPanel({ issueKey, onClose, onUpdated, onSelec
                   title={`Type: ${issue?.fields.issuetype?.name || ''} (click to change)`}
                 >
                   {issue?.fields.issuetype?.iconUrl && (
-                    <img src={issue.fields.issuetype.iconUrl} alt={issue.fields.issuetype?.name} className="w-5 h-5" />
+                    <img src={proxyImageUrl(issue.fields.issuetype.iconUrl)} alt={issue.fields.issuetype?.name} className="w-5 h-5" />
                   )}
                   <span className="text-xs text-gray-500">{issue?.fields.issuetype?.name}</span>
                 </button>
@@ -872,7 +873,7 @@ export default function IssueDetailPanel({ issueKey, onClose, onUpdated, onSelec
                           onClick={() => handleChangeType(t.id)}
                           className={`w-full text-left px-3 py-1.5 text-sm hover:bg-gray-100 dark:hover:bg-gray-700 flex items-center gap-2 ${t.name === issue?.fields.issuetype?.name ? 'font-semibold text-blue-600 dark:text-blue-400' : ''}`}
                         >
-                          {t.iconUrl && <img src={t.iconUrl} alt="" className="w-4 h-4" />}
+                          {t.iconUrl && <img src={proxyImageUrl(t.iconUrl)} alt="" className="w-4 h-4" />}
                           {t.name}
                         </button>
                       ))}
@@ -1067,10 +1068,10 @@ export default function IssueDetailPanel({ issueKey, onClose, onUpdated, onSelec
                                 className="flex items-center gap-2 px-2 py-1.5 rounded hover:bg-gray-50 dark:hover:bg-gray-800/50 transition-colors cursor-pointer"
                                 onClick={() => onSelectIssue?.(st.key)}
                               >
-                                {st.fields.issuetype?.iconUrl && <img src={st.fields.issuetype.iconUrl} alt="" className="w-3.5 h-3.5 flex-shrink-0" />}
+                                {st.fields.issuetype?.iconUrl && <img src={proxyImageUrl(st.fields.issuetype.iconUrl)} alt="" className="w-3.5 h-3.5 flex-shrink-0" />}
                                 <span className="font-mono text-xs text-blue-600 dark:text-blue-400 flex-shrink-0">{st.key}</span>
                                 <span className="text-xs text-gray-700 dark:text-gray-300 truncate flex-1">{st.fields.summary}</span>
-                                {st.fields.priority?.iconUrl && <img src={st.fields.priority.iconUrl} alt="" className="w-3.5 h-3.5 flex-shrink-0" />}
+                                {st.fields.priority?.iconUrl && <img src={proxyImageUrl(st.fields.priority.iconUrl)} alt="" className="w-3.5 h-3.5 flex-shrink-0" />}
                                 <StatusBadge name={st.fields.status.name} colorName={st.fields.status.statusCategory?.colorName || 'blue-gray'} />
                               </div>
                             ))}
@@ -1192,7 +1193,7 @@ export default function IssueDetailPanel({ issueKey, onClose, onUpdated, onSelec
                             <div className="mt-1 space-y-1">
                               {items.map(({ link, targetKey, targetSummary, targetStatus, targetType }) => (
                                 <div key={link.id} className="group flex items-center gap-2 px-2 py-1.5 rounded hover:bg-gray-50 dark:hover:bg-gray-800/50 transition-colors cursor-pointer" onClick={() => onSelectIssue?.(targetKey)}>
-                                  {targetType?.iconUrl && <img src={targetType.iconUrl} alt="" className="w-3.5 h-3.5 flex-shrink-0" />}
+                                  {targetType?.iconUrl && <img src={proxyImageUrl(targetType.iconUrl)} alt="" className="w-3.5 h-3.5 flex-shrink-0" />}
                                   <span className="font-mono text-xs text-blue-600 dark:text-blue-400 flex-shrink-0">{targetKey}</span>
                                   <span className="text-xs text-gray-700 dark:text-gray-300 truncate flex-1">{targetSummary}</span>
                                   <StatusBadge name={targetStatus.name} colorName={targetStatus.statusCategory?.colorName || 'blue-gray'} />
@@ -1543,7 +1544,7 @@ export default function IssueDetailPanel({ issueKey, onClose, onUpdated, onSelec
                     onClick={handleOpenPriorities}
                     className="flex items-center gap-2 hover:bg-gray-50 dark:hover:bg-gray-800 rounded-lg px-2 py-1 -mx-2 transition-colors w-full"
                   >
-                    {issue.fields.priority?.iconUrl && <img src={issue.fields.priority.iconUrl} alt="" className="w-4 h-4" />}
+                    {issue.fields.priority?.iconUrl && <img src={proxyImageUrl(issue.fields.priority.iconUrl)} alt="" className="w-4 h-4" />}
                     <span className="text-gray-700 dark:text-gray-300">{issue.fields.priority?.name || 'None'}</span>
                   </button>
                   {editingPriority && (

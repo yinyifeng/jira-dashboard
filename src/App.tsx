@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import { fetchIssues, checkAuth, logout, setToken, fetchStatuses, fetchPriorities, fetchTeams, type JiraIssue, type TeamConfig } from './api';
+import { fetchIssues, checkAuth, logout, setToken, fetchStatuses, fetchPriorities, fetchTeams, proxyImageUrl, type JiraIssue, type TeamConfig } from './api';
 import IssueTable from './components/IssueTable';
 import IssueDetailPanel from './components/IssueDetailPanel';
 import KanbanBoard from './components/KanbanBoard';
@@ -428,7 +428,7 @@ export default function App() {
                       }`}
                     >
                       {m.avatarUrl ? (
-                        <img src={m.avatarUrl} alt={m.displayName} className="w-7 h-7 rounded-full" />
+                        <img src={proxyImageUrl(m.avatarUrl)} alt={m.displayName} className="w-7 h-7 rounded-full" />
                       ) : (
                         <div className="w-7 h-7 rounded-full bg-blue-500 flex items-center justify-center text-white text-[10px] font-bold">
                           {initials}

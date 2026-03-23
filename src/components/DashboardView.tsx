@@ -1,5 +1,5 @@
 import { useMemo, useState, useEffect } from 'react';
-import { fetchIssues, type JiraIssue } from '../api';
+import { fetchIssues, proxyImageUrl, type JiraIssue } from '../api';
 
 interface DashboardViewProps {
   issues: JiraIssue[];
@@ -189,7 +189,7 @@ export default function DashboardView({ issues, onSelectIssue }: DashboardViewPr
                     className="w-full px-4 py-2.5 flex items-center gap-3 hover:bg-gray-50 dark:hover:bg-gray-800/50 transition-colors text-left"
                   >
                     {issue.fields.issuetype?.iconUrl && (
-                      <img src={issue.fields.issuetype.iconUrl} alt="" className="w-4 h-4 flex-shrink-0" />
+                      <img src={proxyImageUrl(issue.fields.issuetype.iconUrl)} alt="" className="w-4 h-4 flex-shrink-0" />
                     )}
                     <span className="text-xs font-mono text-gray-500 dark:text-gray-400 w-20 flex-shrink-0">
                       {issue.key}
@@ -203,11 +203,11 @@ export default function DashboardView({ issues, onSelectIssue }: DashboardViewPr
                       {statusName}
                     </span>
                     {issue.fields.priority?.iconUrl && (
-                      <img src={issue.fields.priority.iconUrl} alt={issue.fields.priority.name} className="w-4 h-4 flex-shrink-0" />
+                      <img src={proxyImageUrl(issue.fields.priority.iconUrl)} alt={issue.fields.priority.name} className="w-4 h-4 flex-shrink-0" />
                     )}
                     {issue.fields.assignee ? (
                       <img
-                        src={issue.fields.assignee.avatarUrls?.['24x24']}
+                        src={issue.fields.assignee.avatarUrls?.['24x24'] ? proxyImageUrl(issue.fields.assignee.avatarUrls['24x24']) : undefined}
                         alt={issue.fields.assignee.displayName}
                         title={issue.fields.assignee.displayName}
                         className="w-5 h-5 rounded-full flex-shrink-0"

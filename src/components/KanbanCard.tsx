@@ -1,5 +1,5 @@
 import { useDraggable } from '@dnd-kit/core';
-import { type JiraIssue } from '../api';
+import { type JiraIssue, proxyImageUrl } from '../api';
 import StatusBadge from './StatusBadge';
 
 const PROJECT_THEMES: { border: string; badge: string }[] = [
@@ -96,10 +96,10 @@ export default function KanbanCard({ issue, isDragging, isTransitioning, onSelec
             );
           })()}
           {issue.fields.priority?.iconUrl && (
-            <img src={issue.fields.priority.iconUrl} alt={issue.fields.priority.name} className="w-3.5 h-3.5" title={issue.fields.priority.name} />
+            <img src={proxyImageUrl(issue.fields.priority.iconUrl)} alt={issue.fields.priority.name} className="w-3.5 h-3.5" title={issue.fields.priority.name} />
           )}
           {issue.fields.issuetype?.iconUrl && (
-            <img src={issue.fields.issuetype.iconUrl} alt={issue.fields.issuetype.name} className="w-3.5 h-3.5" title={issue.fields.issuetype.name} />
+            <img src={proxyImageUrl(issue.fields.issuetype.iconUrl)} alt={issue.fields.issuetype.name} className="w-3.5 h-3.5" title={issue.fields.issuetype.name} />
           )}
         </div>
       </div>
@@ -122,7 +122,7 @@ export default function KanbanCard({ issue, isDragging, isTransitioning, onSelec
         </div>
         {issue.fields.assignee?.avatarUrls?.['16x16'] ? (
           <img
-            src={issue.fields.assignee.avatarUrls['16x16']}
+            src={proxyImageUrl(issue.fields.assignee.avatarUrls['16x16'])}
             alt={issue.fields.assignee.displayName}
             title={issue.fields.assignee.displayName}
             className="w-5 h-5 rounded-full"

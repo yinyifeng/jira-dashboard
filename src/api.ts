@@ -460,3 +460,10 @@ export function getAttachmentProxyUrl(attachmentId: string): string {
   const token = getToken();
   return `${API_BASE}/api/attachments/${attachmentId}/content${token ? `?token=${encodeURIComponent(token)}` : ''}`;
 }
+
+export function proxyImageUrl(url: string): string {
+  const token = getToken();
+  const params = new URLSearchParams({ url });
+  if (token) params.set('token', token);
+  return `${API_BASE}/api/avatar?${params}`;
+}

@@ -594,6 +594,36 @@ app.delete('/api/attachments/:id', async (req, res) => {
   }
 });
 
+// Proxy avatar images (ad blockers block Atlassian CDN URLs)
+app.get('/api/avatar', async (req, res) => {
+  try {
+    const { url } = req.query;
+    if (!url || typeof url !== 'string') return res.status(400).send('url required');
+    // Only allow HTTPS image URLs from known domains
+    const parsed = new URL(url);
+    if (parsed.protocol !== 'https:') return res.status(403).send('Forbidden');
+    const h = parsed.hostname;
+    const jiraHost = new URL(JIRA_BASE_URL).hostname;
+    const allowed = h.endsWith('.atlassian.com') || h.endsWith('.atlassian.net') || h.endsWith('.atl-paas.net') || h === jiraHost
+      || h.endsWith('.gravatar.com') || h.endsWith('.wp.com') || h.endsWith('.googleusercontent.com');
+    if (!allowed) return res.status(403).send('Forbidden: ' + h);
+    // Add Jira auth for URLs on the Jira host
+    const fetchOpts = {};
+    if (h === jiraHost || h.endsWith('.atlassian.net')) {
+      fetchOpts.headers = { Authorization: authHeader };
+    }
+    const avatarRes = await fetch(url, fetchOpts);
+    if (!avatarRes.ok) return res.status(avatarRes.status).send('Failed to fetch avatar');
+    const contentType = avatarRes.headers.get('content-type');
+    if (contentType) res.setHeader('Content-Type', contentType);
+    res.setHeader('Cache-Control', 'public, max-age=86400');
+    const { Readable } = await import('stream');
+    Readable.fromWeb(avatarRes.body).pipe(res);
+  } catch (err) {
+    res.status(500).send('Failed to proxy avatar');
+  }
+});
+
 // Proxy attachment content (images need auth to load from Jira)
 app.get('/api/attachments/:id/content', async (req, res) => {
   try {

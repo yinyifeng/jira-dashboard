@@ -1,4 +1,4 @@
-import { type JiraIssue, updateIssue, fetchPriorities } from '../api';
+import { type JiraIssue, updateIssue, fetchPriorities, proxyImageUrl } from '../api';
 import EditableCell from './EditableCell';
 import StatusTransition from './StatusTransition';
 import { useState, useEffect } from 'react';
@@ -78,7 +78,7 @@ export default function IssueTable({ issues, onRefresh, onSelectIssue }: IssueTa
                 <td className="px-3 py-2">
                   <div className="flex items-center gap-1">
                     {issue.fields.issuetype?.iconUrl && (
-                      <img src={issue.fields.issuetype.iconUrl} alt="" className="w-4 h-4" />
+                      <img src={proxyImageUrl(issue.fields.issuetype.iconUrl)} alt="" className="w-4 h-4" />
                     )}
                     <span className="text-gray-600 dark:text-gray-400">{issue.fields.issuetype?.name}</span>
                   </div>
@@ -162,7 +162,7 @@ export default function IssueTable({ issues, onRefresh, onSelectIssue }: IssueTa
             <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-gray-500">
               <div className="flex items-center gap-1">
                 {issue.fields.issuetype?.iconUrl && (
-                  <img src={issue.fields.issuetype.iconUrl} alt="" className="w-3.5 h-3.5" />
+                  <img src={proxyImageUrl(issue.fields.issuetype.iconUrl)} alt="" className="w-3.5 h-3.5" />
                 )}
                 {issue.fields.issuetype?.name}
               </div>
