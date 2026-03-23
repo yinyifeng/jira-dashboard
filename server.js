@@ -512,6 +512,22 @@ app.get('/api/issues/:key/worklog', async (req, res) => {
   }
 });
 
+// Add worklog entry to an issue
+app.post('/api/issues/:key/worklog', async (req, res) => {
+  try {
+    const { timeSpent } = req.body;
+    if (!timeSpent) return res.status(400).json({ error: 'timeSpent required' });
+    const data = await jiraFetch(`/issue/${req.params.key}/worklog`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ timeSpent }),
+    });
+    res.json(data);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // Upload attachments to an issue
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 50 * 1024 * 1024 } });
 app.post('/api/issues/:key/attachments', upload.array('files', 10), async (req, res) => {

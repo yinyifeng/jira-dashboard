@@ -20,6 +20,7 @@ import {
   uploadAttachments,
   deleteAttachment,
   getAttachmentProxyUrl,
+  addWorklog,
   type JiraIssue,
   type JiraComment,
   type IssueLink,
@@ -735,8 +736,12 @@ export default function IssueDetailPanel({ issueKey, onClose, onUpdated, onSelec
   const handleSaveTimeTracking = async (field: 'originalEstimate' | 'timeSpent', value: string) => {
     setSavingField(true);
     try {
-      // Jira expects timetracking as a nested object with the specific field
-      await updateIssue(issueKey, { timetracking: { [field]: value } });
+      if (field === 'timeSpent') {
+        // Time spent must be logged via the worklog API
+        await addWorklog(issueKey, value);
+      } else {
+        await updateIssue(issueKey, { timetracking: { [field]: value } });
+      }
       setEditingField(null);
       setFieldDraft('');
       onUpdated();

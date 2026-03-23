@@ -278,6 +278,18 @@ export async function fetchWorklog(key: string): Promise<WorklogEntry[]> {
   return data.worklogs || [];
 }
 
+export async function addWorklog(key: string, timeSpent: string): Promise<void> {
+  const res = await authFetch(`${API_BASE}/api/issues/${key}/worklog`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ timeSpent }),
+  });
+  if (!res.ok) {
+    const data = await res.json();
+    throw new Error(data.error || 'Failed to add worklog');
+  }
+}
+
 // --- Shared teams ---
 export interface TeamMember {
   accountId: string;
@@ -326,12 +338,67 @@ export async function fetchComments(key: string): Promise<JiraComment[]> {
   return data.comments || [];
 }
 
+function parseInlineMarks(text: string): unknown[] {
+  const nodes: unknown[] = [];
+  // Split on inline code backticks, bold (**), and italic (_)
+  // Process backticks first since code content shouldn't be further parsed
+  const codeRegex = /`([^`]+)`/g;
+  let lastIndex = 0;
+  let match;
+  const segments: { text: string; isCode: boolean }[] = [];
+  while ((match = codeRegex.exec(text)) !== null) {
+    if (match.index > lastIndex) {
+      segments.push({ text: text.slice(lastIndex, match.index), isCode: false });
+    }
+    segments.push({ text: match[1], isCode: true });
+    lastIndex = codeRegex.lastIndex;
+  }
+  if (lastIndex < text.length) {
+    segments.push({ text: text.slice(lastIndex), isCode: false });
+  }
+  if (segments.length === 0) {
+    segments.push({ text, isCode: false });
+  }
+
+  for (const seg of segments) {
+    if (seg.isCode) {
+      nodes.push({ type: 'text', text: seg.text, marks: [{ type: 'code' }] });
+    } else {
+      // Parse bold and italic in non-code segments
+      const inlineRegex = /(\*\*(.+?)\*\*)|(_(.+?)_)/g;
+      let idx = 0;
+      let m;
+      while ((m = inlineRegex.exec(seg.text)) !== null) {
+        if (m.index > idx) {
+          nodes.push({ type: 'text', text: seg.text.slice(idx, m.index) });
+        }
+        if (m[2] !== undefined) {
+          nodes.push({ type: 'text', text: m[2], marks: [{ type: 'strong' }] });
+        } else if (m[4] !== undefined) {
+          nodes.push({ type: 'text', text: m[4], marks: [{ type: 'em' }] });
+        }
+        idx = inlineRegex.lastIndex;
+      }
+      if (idx < seg.text.length) {
+        const remaining = seg.text.slice(idx);
+        if (remaining) nodes.push({ type: 'text', text: remaining });
+      }
+    }
+  }
+  return nodes;
+}
+
+function textToAdf(text: string): unknown {
+  const lines = text.split('\n');
+  const content = lines.map(line => ({
+    type: 'paragraph',
+    content: line ? parseInlineMarks(line) : [{ type: 'text', text: ' ' }],
+  }));
+  return { type: 'doc', version: 1, content };
+}
+
 export async function addComment(key: string, bodyText: string): Promise<JiraComment> {
-  const body = {
-    type: 'doc',
-    version: 1,
-    content: [{ type: 'paragraph', content: [{ type: 'text', text: bodyText || ' ' }] }],
-  };
+  const body = textToAdf(bodyText || ' ');
   const res = await authFetch(`${API_BASE}/api/issues/${key}/comments`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -342,11 +409,7 @@ export async function addComment(key: string, bodyText: string): Promise<JiraCom
 }
 
 export async function editComment(issueKey: string, commentId: string, bodyText: string): Promise<JiraComment> {
-  const body = {
-    type: 'doc',
-    version: 1,
-    content: [{ type: 'paragraph', content: [{ type: 'text', text: bodyText }] }],
-  };
+  const body = textToAdf(bodyText);
   const res = await authFetch(`${API_BASE}/api/issues/${issueKey}/comments/${commentId}`, {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
