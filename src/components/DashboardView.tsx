@@ -64,13 +64,6 @@ export default function DashboardView({ baseJql, onSelectIssue }: DashboardViewP
     const queries = buildCategoryJql(base);
     setLoading(true);
 
-    // Fetch open count (just need 1 result to get total)
-    const openPromise = fetchIssues(queries.open, undefined, 1)
-      .then((data) => data.issues.length + (data.isLast ? 0 : 999))
-      .catch(() => 0);
-
-    // For open count, we actually need to fetch enough to count, or use a different approach
-    // Fetch with maxResults=200 to get a good count
     const openCountPromise = fetchIssues(queries.open, undefined, 200)
       .then((data) => {
         // If there are more pages, the count is approximate
@@ -85,7 +78,7 @@ export default function DashboardView({ baseJql, onSelectIssue }: DashboardViewP
         .map(([key, jql]) =>
           fetchIssues(jql, undefined, 200)
             .then((data) => [key, data.issues] as const)
-            .catch(() => [key, []] as const)
+            .catch(() => [key, [] as JiraIssue[]] as const)
         )
     );
 
