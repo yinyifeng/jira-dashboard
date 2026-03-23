@@ -24,9 +24,16 @@ export default function App() {
   const [isLast, setIsLast] = useState(true);
   const [selectedIssueKey, setSelectedIssueKey] = useState<string | null>(() => {
     const hash = window.location.hash.slice(1);
-    return hash || null;
+    const parts = hash.split('/');
+    // Hash format: #view or #view/ISSUE-KEY
+    return parts[1] || null;
   });
-  const [viewMode, setViewMode] = useState<ViewMode>('dashboard');
+  const [viewMode, setViewMode] = useState<ViewMode>(() => {
+    const hash = window.location.hash.slice(1);
+    const view = hash.split('/')[0];
+    if (view === 'table' || view === 'board' || view === 'dashboard') return view;
+    return 'dashboard';
+  });
   const [showSettings, setShowSettings] = useState(false);
   const [teams, setTeams] = useState<TeamConfig[]>([]);
   const [selectedMembers, setSelectedMembers] = useState<Set<string>>(new Set());
@@ -105,29 +112,26 @@ export default function App() {
     return clauses.join(' AND ') + ' ORDER BY updated DESC';
   }, []);
 
-  // Sync selected issue key with URL hash
+  // Sync view mode and selected issue with URL hash
   useEffect(() => {
-    const newHash = selectedIssueKey ? `#${selectedIssueKey}` : '';
+    const newHash = selectedIssueKey ? `#${viewMode}/${selectedIssueKey}` : `#${viewMode}`;
     if (window.location.hash !== newHash) {
-      if (selectedIssueKey) {
-        window.history.pushState(null, '', newHash);
-      } else {
-        window.history.replaceState(null, '', window.location.pathname + window.location.search);
-      }
+      window.history.pushState(null, '', newHash);
     }
-  }, [selectedIssueKey]);
+  }, [selectedIssueKey, viewMode]);
 
   useEffect(() => {
     const onHashChange = () => {
       const hash = window.location.hash.slice(1);
-      setSelectedIssueKey(hash || null);
+      const parts = hash.split('/');
+      const view = parts[0];
+      if (view === 'table' || view === 'board' || view === 'dashboard') {
+        setViewMode(view);
+      }
+      setSelectedIssueKey(parts[1] || null);
     };
-    window.addEventListener('hashchange', onHashChange);
     window.addEventListener('popstate', onHashChange);
-    return () => {
-      window.removeEventListener('hashchange', onHashChange);
-      window.removeEventListener('popstate', onHashChange);
-    };
+    return () => window.removeEventListener('popstate', onHashChange);
   }, []);
 
   useEffect(() => {
