@@ -22,7 +22,10 @@ export default function App() {
   const [nextPageToken, setNextPageToken] = useState<string | undefined>();
   const [pageTokenHistory, setPageTokenHistory] = useState<(string | undefined)[]>([]);
   const [isLast, setIsLast] = useState(true);
-  const [selectedIssueKey, setSelectedIssueKey] = useState<string | null>(null);
+  const [selectedIssueKey, setSelectedIssueKey] = useState<string | null>(() => {
+    const hash = window.location.hash.slice(1);
+    return hash || null;
+  });
   const [viewMode, setViewMode] = useState<ViewMode>('dashboard');
   const [showSettings, setShowSettings] = useState(false);
   const [teams, setTeams] = useState<TeamConfig[]>([]);
@@ -100,6 +103,31 @@ export default function App() {
     if (priority) clauses.push(`priority = "${priority}"`);
     if (type) clauses.push(`issuetype = "${type}"`);
     return clauses.join(' AND ') + ' ORDER BY updated DESC';
+  }, []);
+
+  // Sync selected issue key with URL hash
+  useEffect(() => {
+    const newHash = selectedIssueKey ? `#${selectedIssueKey}` : '';
+    if (window.location.hash !== newHash) {
+      if (selectedIssueKey) {
+        window.history.pushState(null, '', newHash);
+      } else {
+        window.history.replaceState(null, '', window.location.pathname + window.location.search);
+      }
+    }
+  }, [selectedIssueKey]);
+
+  useEffect(() => {
+    const onHashChange = () => {
+      const hash = window.location.hash.slice(1);
+      setSelectedIssueKey(hash || null);
+    };
+    window.addEventListener('hashchange', onHashChange);
+    window.addEventListener('popstate', onHashChange);
+    return () => {
+      window.removeEventListener('hashchange', onHashChange);
+      window.removeEventListener('popstate', onHashChange);
+    };
   }, []);
 
   useEffect(() => {
