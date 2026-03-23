@@ -403,7 +403,22 @@ function textToAdf(text: string): unknown {
   return { type: 'doc', version: 1, content };
 }
 
-export async function addComment(key: string, bodyText: string): Promise<JiraComment> {
+export async function addComment(key: string, bodyText: string, attachments?: JiraAttachment[]): Promise<JiraComment> {
+  const imageAttachments = attachments?.filter(a => a.mimeType.startsWith('image/')) || [];
+
+  // Use wiki markup via v2 API when there are image attachments (for inline display)
+  if (imageAttachments.length > 0) {
+    const imageRefs = imageAttachments.map(a => `!${a.filename}!`).join('\n');
+    const wikiBody = bodyText.trim() ? `${bodyText.trim()}\n\n${imageRefs}` : imageRefs;
+    const res = await authFetch(`${API_BASE}/api/issues/${key}/comments`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ wikiBody }),
+    });
+    if (!res.ok) throw new Error('Failed to add comment');
+    return res.json();
+  }
+
   const body = textToAdf(bodyText || ' ');
   const res = await authFetch(`${API_BASE}/api/issues/${key}/comments`, {
     method: 'POST',

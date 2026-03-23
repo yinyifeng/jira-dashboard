@@ -11,8 +11,20 @@ type ViewMode = 'dashboard' | 'table' | 'kanban';
 
 const DEFAULT_JQL = 'assignee = currentUser() AND resolution = Unresolved ORDER BY priority DESC';
 
+// Handle OAuth token synchronously before React renders
+function getInitialAuth(): boolean | null {
+  const params = new URLSearchParams(window.location.search);
+  const oauthToken = params.get('token');
+  if (oauthToken) {
+    setToken(oauthToken);
+    window.history.replaceState({}, '', window.location.pathname);
+    return true;
+  }
+  return null; // need to check
+}
+
 export default function App() {
-  const [authed, setAuthed] = useState<boolean | null>(null); // null = checking
+  const [authed, setAuthed] = useState<boolean | null>(getInitialAuth);
   const [issues, setIssues] = useState<JiraIssue[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
@@ -111,13 +123,16 @@ export default function App() {
     return clauses.join(' AND ') + ' ORDER BY updated DESC';
   }, []);
 
-  // Sync view mode and selected issue with URL path
+  // Sync view mode and selected issue with URL path (only after auth resolved)
   useEffect(() => {
+    if (authed === null) return; // Don't touch URL until auth is resolved
+    // Don't overwrite URL if it has a token query param (OAuth callback)
+    if (window.location.search.includes('token=')) return;
     const newPath = selectedIssueKey ? `/${viewMode}/${selectedIssueKey}` : `/${viewMode}`;
     if (window.location.pathname !== newPath) {
       window.history.pushState(null, '', newPath);
     }
-  }, [selectedIssueKey, viewMode]);
+  }, [selectedIssueKey, viewMode, authed]);
 
   useEffect(() => {
     const onPopState = () => {
@@ -133,15 +148,7 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    // Check for OAuth token in URL (Google OAuth callback)
-    const params = new URLSearchParams(window.location.search);
-    const oauthToken = params.get('token');
-    if (oauthToken) {
-      setToken(oauthToken);
-      window.history.replaceState({}, '', '/');
-      setAuthed(true);
-      return;
-    }
+    if (authed === true) return; // Already authed (e.g. from OAuth token)
     checkAuth().then(setAuthed);
   }, []);
 

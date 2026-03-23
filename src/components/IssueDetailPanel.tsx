@@ -260,14 +260,17 @@ function adfBlockToHtml(block: unknown, attachments?: AttachmentMap): string {
     case 'media': {
       const mediaId = b.attrs?.id as string;
       const mediaAlt = b.attrs?.alt as string | undefined;
-      const att = attachments?.get(mediaId) || (mediaAlt ? attachments?.get(mediaAlt) : undefined);
+      // Wiki markup comments produce media IDs like "UNKNOWN_MEDIA_filename.png" — extract filename to match
+      const unknownPrefix = 'UNKNOWN_MEDIA_';
+      const filenameFromId = mediaId?.startsWith(unknownPrefix) ? mediaId.slice(unknownPrefix.length) : undefined;
+      const att = attachments?.get(mediaId) || (mediaAlt ? attachments?.get(mediaAlt) : undefined) || (filenameFromId ? attachments?.get(filenameFromId) : undefined);
       if (att && att.mimeType?.startsWith('image/')) {
         return `<img src="${escHtml(att.content)}" alt="${escHtml(att.filename)}" data-full-src="${escHtml(att.content)}" class="adf-media-img" style="max-width:100%;border-radius:6px;margin:8px 0;cursor:zoom-in;" />`;
       }
       if (att) {
         return `<a href="${escHtml(att.content)}" target="_blank" rel="noopener" class="adf-link" style="display:inline-flex;align-items:center;gap:4px;padding:4px 8px;background:#f3f4f6;border-radius:6px;font-size:12px;text-decoration:none;color:#374151;">${escHtml(att.filename)}</a>`;
       }
-      return '<p class="adf-media">[media attachment]</p>';
+      return '';
     }
     case 'table':
       return `<table class="adf-table">${(b.content || []).map(c => adfBlockToHtml(c, attachments)).join('')}</table>`;
@@ -518,8 +521,9 @@ export default function IssueDetailPanel({ issueKey, onClose, onUpdated, onSelec
     if (!newComment.trim() && pendingFiles.length === 0) return;
     setAddingComment(true);
     try {
+      let uploaded: Awaited<ReturnType<typeof uploadAttachments>> = [];
       if (pendingFiles.length > 0) {
-        const uploaded = await uploadAttachments(issueKey, pendingFiles);
+        uploaded = await uploadAttachments(issueKey, pendingFiles);
         // Track these attachment IDs as comment-associated
         setCommentAttIds(prev => {
           const next = new Set(prev);
@@ -528,10 +532,9 @@ export default function IssueDetailPanel({ issueKey, onClose, onUpdated, onSelec
         });
         setPendingFiles([]);
       }
-      if (newComment.trim()) {
-        await addComment(issueKey, newComment);
-        setNewComment('');
-      }
+      // Pass uploaded attachments so images get embedded in the comment ADF
+      await addComment(issueKey, newComment || ' ', uploaded.length > 0 ? uploaded : undefined);
+      setNewComment('');
       const [updated, refreshed] = await Promise.all([fetchComments(issueKey), fetchIssueDetail(issueKey)]);
       setComments(updated);
       setIssue(refreshed);
@@ -558,12 +561,26 @@ export default function IssueDetailPanel({ issueKey, onClose, onUpdated, onSelec
   };
 
   const handleDeleteComment = async (commentId: string) => {
+    // Find attachments associated with this comment before removing it
+    const associatedAtts = commentAttachments.get(commentId) || [];
+    // Also find attachments referenced by media nodes in the comment ADF
+    const comment = comments.find((c) => c.id === commentId);
+    const mediaRefs = comment ? collectAdfMediaRefs(comment.body) : new Set<string>();
+    const allAtts = (issue?.fields?.attachment || []) as AttachmentInfo[];
+    const mediaRefAtts = allAtts.filter((a) => mediaRefs.has(a.id) || mediaRefs.has(a.filename) || mediaRefs.has(`UNKNOWN_MEDIA_${a.filename}`));
+    const attsToDelete = new Map<string, AttachmentInfo>();
+    for (const a of [...associatedAtts, ...mediaRefAtts]) attsToDelete.set(a.id, a);
+
     // Optimistically remove from UI first
     setComments((prev) => prev.filter((c) => c.id !== commentId));
     try {
       await deleteComment(issueKey, commentId);
     } catch {
       // Comment may already be deleted — ignore errors since UI already updated
+    }
+    // Delete associated attachments
+    for (const att of attsToDelete.values()) {
+      try { await deleteAttachment(att.id); } catch { /* ignore */ }
     }
     // Refresh to sync state
     try {

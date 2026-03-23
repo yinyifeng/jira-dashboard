@@ -460,6 +460,25 @@ app.get('/api/issues/:key/comments', async (req, res) => {
 // Add a comment to an issue
 app.post('/api/issues/:key/comments', async (req, res) => {
   try {
+    // Use v2 API with wiki markup when wikiBody is provided (for inline images)
+    if (req.body.wikiBody) {
+      const url = `${JIRA_BASE_URL}/rest/api/2/issue/${req.params.key}/comment`;
+      const jiraRes = await fetch(url, {
+        method: 'POST',
+        headers: {
+          Authorization: authHeader,
+          'Content-Type': 'application/json',
+          Accept: 'application/json',
+        },
+        body: JSON.stringify({ body: req.body.wikiBody }),
+      });
+      if (!jiraRes.ok) {
+        const text = await jiraRes.text();
+        throw new Error(`Jira API ${jiraRes.status}: ${text}`);
+      }
+      const data = await jiraRes.json();
+      return res.json(data);
+    }
     const data = await jiraFetch(`/issue/${req.params.key}/comment`, {
       method: 'POST',
       body: JSON.stringify({ body: req.body.body }),
