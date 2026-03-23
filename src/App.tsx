@@ -23,16 +23,15 @@ export default function App() {
   const [pageTokenHistory, setPageTokenHistory] = useState<(string | undefined)[]>([]);
   const [isLast, setIsLast] = useState(true);
   const [selectedIssueKey, setSelectedIssueKey] = useState<string | null>(() => {
-    const hash = window.location.hash.slice(1);
-    const parts = hash.split('/');
-    // Hash format: #view or #view/ISSUE-KEY
+    const parts = window.location.pathname.split('/').filter(Boolean);
+    // Path format: /view or /view/ISSUE-KEY
     return parts[1] || null;
   });
   const [viewMode, setViewMode] = useState<ViewMode>(() => {
-    const hash = window.location.hash.slice(1);
-    const view = hash.split('/')[0];
-    if (view === 'table' || view === 'board' || view === 'dashboard') return view;
-    return 'dashboard';
+    const parts = window.location.pathname.split('/').filter(Boolean);
+    const view = parts[0] as string;
+    if (view === 'table' || view === 'board' || view === 'dashboard') return view as ViewMode;
+    return 'dashboard' as ViewMode;
   });
   const [showSettings, setShowSettings] = useState(false);
   const [teams, setTeams] = useState<TeamConfig[]>([]);
@@ -112,26 +111,25 @@ export default function App() {
     return clauses.join(' AND ') + ' ORDER BY updated DESC';
   }, []);
 
-  // Sync view mode and selected issue with URL hash
+  // Sync view mode and selected issue with URL path
   useEffect(() => {
-    const newHash = selectedIssueKey ? `#${viewMode}/${selectedIssueKey}` : `#${viewMode}`;
-    if (window.location.hash !== newHash) {
-      window.history.pushState(null, '', newHash);
+    const newPath = selectedIssueKey ? `/${viewMode}/${selectedIssueKey}` : `/${viewMode}`;
+    if (window.location.pathname !== newPath) {
+      window.history.pushState(null, '', newPath);
     }
   }, [selectedIssueKey, viewMode]);
 
   useEffect(() => {
-    const onHashChange = () => {
-      const hash = window.location.hash.slice(1);
-      const parts = hash.split('/');
+    const onPopState = () => {
+      const parts = window.location.pathname.split('/').filter(Boolean);
       const view = parts[0];
       if (view === 'table' || view === 'board' || view === 'dashboard') {
-        setViewMode(view);
+        setViewMode(view as ViewMode);
       }
       setSelectedIssueKey(parts[1] || null);
     };
-    window.addEventListener('popstate', onHashChange);
-    return () => window.removeEventListener('popstate', onHashChange);
+    window.addEventListener('popstate', onPopState);
+    return () => window.removeEventListener('popstate', onPopState);
   }, []);
 
   useEffect(() => {
