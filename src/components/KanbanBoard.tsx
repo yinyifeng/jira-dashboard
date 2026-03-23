@@ -73,7 +73,6 @@ function getIssueDateForColumn(issue: JiraIssue, category: string): Date {
 
 export default function KanbanBoard({ issues, onRefresh, onSelectIssue, selectedBoard }: KanbanBoardProps) {
   const [activeIssue, setActiveIssue] = useState<JiraIssue | null>(null);
-  const transitioning = null; // Optimistic moves handle visual feedback now
   const [hiddenColumns, setHiddenColumns] = useState<Set<string>>(new Set());
   const [projectStatuses, setProjectStatuses] = useState<{ name: string; statusCategory: { name: string } }[]>([]);
 
@@ -94,7 +93,7 @@ export default function KanbanBoard({ issues, onRefresh, onSelectIssue, selected
   const [optimisticMoves, setOptimisticMoves] = useState<Record<string, { statusName: string; categoryName: string }>>({});
 
   // Clear optimistic overrides once real data catches up
-  useMemo(() => {
+  useEffect(() => {
     if (Object.keys(optimisticMoves).length === 0) return;
     const resolved: string[] = [];
     for (const [key, override] of Object.entries(optimisticMoves)) {
@@ -136,10 +135,10 @@ export default function KanbanBoard({ issues, onRefresh, onSelectIssue, selected
     });
   }, [issues, optimisticMoves]);
 
-  const sensors = useSensors(
-    useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
-    useSensor(TouchSensor, { activationConstraint: { delay: 200, tolerance: 5 } }),
-  );
+  const pointerSensor = useSensor(PointerSensor, { activationConstraint: { distance: 5 } });
+  const touchSensor = useSensor(TouchSensor, { activationConstraint: { delay: 200, tolerance: 5 } });
+  const isMobile = typeof window !== 'undefined' && window.matchMedia('(max-width: 639px)').matches;
+  const sensors = useSensors(...isMobile ? [] : [pointerSensor, touchSensor]);
 
   // Build columns: use project statuses when a board is selected, otherwise dynamic from issues
   const allColumns = useMemo(() => {
@@ -341,7 +340,6 @@ export default function KanbanBoard({ issues, onRefresh, onSelectIssue, selected
               id={col.name}
               color={CATEGORY_COLORS[col.category] || 'bg-gray-400 dark:bg-gray-500'}
               issues={col.issues}
-              transitioning={transitioning}
               onSelectIssue={onSelectIssue}
               headerExtra={
                 <div className="flex items-center gap-1">

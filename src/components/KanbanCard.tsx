@@ -27,11 +27,10 @@ function getProjectColorIndex(key: string): number {
 interface KanbanCardProps {
   issue: JiraIssue;
   isDragging?: boolean;
-  isTransitioning?: boolean;
   onSelectIssue: (key: string) => void;
 }
 
-export default function KanbanCard({ issue, isDragging, isTransitioning, onSelectIssue }: KanbanCardProps) {
+export default function KanbanCard({ issue, isDragging, onSelectIssue }: KanbanCardProps) {
   const projectKey = issue.fields.project?.key || '';
   const theme = PROJECT_THEMES[getProjectColorIndex(projectKey)];
   const { attributes, listeners, setNodeRef, transform } = useDraggable({
@@ -65,7 +64,7 @@ export default function KanbanCard({ issue, isDragging, isTransitioning, onSelec
       }}
       className={`bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 border-l-[3px] ${theme.border} p-3 cursor-pointer active:cursor-grabbing transition-shadow ${
         isDragging ? 'shadow-lg opacity-90 rotate-2 cursor-grabbing' : 'shadow-sm hover:shadow-md'
-      } ${isTransitioning ? 'opacity-50 pointer-events-none' : ''}`}
+      }`}
     >
       {/* Top row: key + priority */}
       <div className="flex items-center justify-between mb-1.5">
@@ -143,9 +142,6 @@ export default function KanbanCard({ issue, isDragging, isTransitioning, onSelec
         </div>
       )}
 
-      {isTransitioning && (
-        <div className="mt-2 text-xs text-blue-500 animate-pulse">Moving...</div>
-      )}
     </div>
   );
 }

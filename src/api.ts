@@ -81,6 +81,12 @@ export async function checkAuth(): Promise<boolean> {
   }
 }
 
+export async function fetchCurrentUser(): Promise<{ accountId: string; displayName: string }> {
+  const res = await authFetch(`${API_BASE}/api/me`);
+  if (!res.ok) throw new Error('Failed to fetch current user');
+  return res.json();
+}
+
 export interface JiraIssue {
   id: string;
   key: string;

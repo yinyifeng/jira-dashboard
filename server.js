@@ -216,6 +216,16 @@ async function jiraFetch(path, options = {}) {
   return res.json();
 }
 
+// Get current Jira user identity
+app.get('/api/me', async (req, res) => {
+  try {
+    const data = await jiraFetch('/myself');
+    res.json({ accountId: data.accountId, displayName: data.displayName, avatarUrls: data.avatarUrls });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // Get all boards the user has access to
 app.get('/api/boards', async (req, res) => {
   try {

@@ -6,12 +6,11 @@ interface KanbanColumnProps {
   id: string;
   color: string;
   issues: JiraIssue[];
-  transitioning: string | null;
   onSelectIssue: (key: string) => void;
   headerExtra?: React.ReactNode;
 }
 
-export default function KanbanColumn({ id, color, issues, transitioning, onSelectIssue, headerExtra }: KanbanColumnProps) {
+export default function KanbanColumn({ id, color, issues, onSelectIssue, headerExtra }: KanbanColumnProps) {
   const { setNodeRef, isOver } = useDroppable({ id });
 
   return (
@@ -37,7 +36,6 @@ export default function KanbanColumn({ id, color, issues, transitioning, onSelec
           <KanbanCard
             key={issue.key}
             issue={issue}
-            isTransitioning={transitioning === issue.key}
             onSelectIssue={onSelectIssue}
           />
         ))}
